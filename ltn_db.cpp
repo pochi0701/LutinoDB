@@ -2579,7 +2579,6 @@ int _DBDisConnect(wString& key)
 	if (connects->count(key) > 0) {
 		Database* db = (*connects)[key];
 		catalog->DBClose(db);
-		connects->erase(key);
 		return 0;
 	}
 	return -1;
