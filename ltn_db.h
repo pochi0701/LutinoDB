@@ -76,6 +76,12 @@ enum class CMDS {
 	TXMODIFY = 37,
 	TXRENAME = 38,
 	TXCOLUMN = 39,
+	TXON = 40,
+	TXLEFT = 41,
+	TXJOIN = 42,
+	TXINNER = 43,
+	TXOUTER = 44,
+	TXRIGHT = 45,
 	TXARG = 99,
 	/// <summary>プリミティブ</summary>
 	TXPRM = 98,

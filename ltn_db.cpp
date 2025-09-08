@@ -1,9 +1,9 @@
 ﻿// ==========================================================================
-//code=UTF8	 matérielfileName(current_dir + DELIMITER + "database" + DELIMITER);
+//code=UTF8	 matérielsfileName(current_dir + DELIMITER + "database" + DELIMITER);
 // Lutino: Application Server.
 // ltn_db.cpp
 // $Revision: 1.0 $
-// $Date: 2018/02/12 21:11:00 $
+// $Date: 2025/09/02 11:35:00 $
 // ==========================================================================
 #define _CRT_SECURE_NO_WARNINGS
 #define CMDLINE
@@ -67,7 +67,11 @@ const char* ccmd[] = { "select","create",   "insert",  "update","delete",
 				   "table", "databases","database","values","quit",
 				   "use",   "and",      "or",      "as",    "help",
 				   "asc",   "desc",     "alter",   "add",   "after",
-				   "to",    "modify",   "rename",  "column","like" };
+				   "to",    "modify",   "rename",  "column","like",
+				   // --- 追加 ---
+				   "on",    "left",     "join",    "inner", "outer", "right"
+				   // --- ここまで ---
+};
 
 /// <summary>
 /// ENUMでの表現
@@ -78,7 +82,11 @@ CMDS   cmds[] = { CMDS::TXSELECT,CMDS::TXCREATE,  CMDS::TXINSERT,  CMDS::TXUPDAT
 				   CMDS::TXTBL,  CMDS::TXDATABASES,CMDS::TXDATABASE,CMDS::TXVALUES,CMDS::TXQUIT,
 				   CMDS::TXUSE,  CMDS::TXAND,      CMDS::TXOR,      CMDS::TXAS,    CMDS::TXHELP,
 				   CMDS::TXASC,  CMDS::TXDESC,     CMDS::TXALTER,   CMDS::TXADD,   CMDS::TXAFTER,
-				   CMDS::TXTO,   CMDS::TXMODIFY,   CMDS::TXRENAME,  CMDS::TXCOLUMN,CMDS::TXOP };
+				   CMDS::TXTO,   CMDS::TXMODIFY,   CMDS::TXRENAME,  CMDS::TXCOLUMN,CMDS::TXOP,
+				   // --- 追加 ---
+				   CMDS::TXON,   CMDS::TXLEFT,     CMDS::TXJOIN,   CMDS::TXINNER, CMDS::TXOUTER, CMDS::TXRIGHT
+				   // --- ここまで ---
+};
 
 /// <summary>
 /// コマンド数
@@ -1682,7 +1690,7 @@ int Database::SQL(const wString& sqltext, wString& retStr)
 				ret = getToken(sql, token);
 			}
 			if (ret == CMDS::TXFROM)               break;
-			else if (ret != CMDS::TXCM) { err("SELECT SYNTAX ERROR");   return -1; }//","
+			else if (ret != CMDS::TXCM) { err("SELECT SYNTAX ERROR");   return -1; }//"," 
 		}
 		//テーブル名取得
 		for (;;) {
@@ -1697,6 +1705,42 @@ int Database::SQL(const wString& sqltext, wString& retStr)
 			}
 			if (ret != CMDS::TXCM)                 break;
 		}
+
+		// --- JOIN句の処理をWHEREの前に追加 ---
+		while (ret == CMDS::TXJOIN || ret == CMDS::TXLEFT || ret == CMDS::TXINNER) {
+			bool isLeftJoin = (ret == CMDS::TXLEFT);
+			bool isInnerJoin = (ret == CMDS::TXINNER || ret == CMDS::TXJOIN);
+			if (ret == CMDS::TXLEFT || ret == CMDS::TXINNER) {
+				if (chkToken(sql, token2, ret, CMDS::TXJOIN)) { err("JOIN NO JOIN COMMAND"); return -1; }
+			}
+			// JOINの次はテーブル名
+			if (chkToken(sql, token2, ret, CMDS::TXARG)) { err("JOIN NO TABLE ERROR"); return -1; }
+			tables.push_back(reinterpret_cast<char*>(token2));
+			ret = getToken(sql, token);
+			if (ret == CMDS::TXAS) {
+				if (chkToken(sql, token, ret, CMDS::TXARG)) { err("JOIN NO ARG ERROR");   return -1; }
+				cond.tblalias[reinterpret_cast<char*>(token)] = reinterpret_cast<char*>(token2);
+				ret = getToken(sql, token);
+			}
+			// ON句の処理
+			if (ret == CMDS::TXON) {
+				// ON 条件は4つのトークン (col1, op, col2, AND/OR)
+				cond.put(const_cast<char*>("AND"), CMDS::TXAND); // JOIN ONの最初はANDで
+				for (;;) {
+					if (chkToken(sql, token, ret, CMDS::TXARG, CMDS::TXPRM)) { err("JOIN ON NO ARG"); return -1; }
+					cond.put(reinterpret_cast<char*>(token), ret);
+					if (chkToken(sql, token, ret, CMDS::TXOP)) { err("JOIN ON NO OPE"); return -1; }
+					cond.put(reinterpret_cast<char*>(token), ret);
+					if (chkToken(sql, token, ret, CMDS::TXARG, CMDS::TXPRM)) { err("JOIN ON NO ARG"); return -1; }
+					cond.put(reinterpret_cast<char*>(token), ret);
+					if (chkToken(sql, token, ret, CMDS::TXAND, CMDS::TXOR)) break;
+					cond.put(reinterpret_cast<char*>(token), ret);
+				}
+			}
+			ret = getToken(sql, token);
+		}
+		// --- ここまで JOIN句の処理 ---
+
 		//WHERE取得
 		if (ret == CMDS::TXWHERE) {
 			cond.put(const_cast<char*>("AND"), CMDS::TXAND);           //初回は1にANDする
@@ -2520,6 +2564,7 @@ int DBCatalog::SaveToFile(void)
 	return 0;
 }
 
+/////////////////////////////////////////////////////////////////////////////
 /// <summary>
 /// コンストラクタ
 /// </summary>
@@ -2709,7 +2754,7 @@ int main(int argc, char* argv[])
 			}
 			Database* db1 = catalog->DBConnect((char*)token);
 			if (db1) {
-				catalog->DBClose(db);
+		catalog->DBClose(db);
 				db = db1;
 				printf("OK\n");
 			}
