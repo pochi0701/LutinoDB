@@ -1716,10 +1716,15 @@ int Database::SQL(const wString& sqltext, wString& retStr)
 		}
 
 		// --- JOIN句の処理をWHEREの前に追加 ---
-		while (ret == CMDS::TXJOIN || ret == CMDS::TXLEFT || ret == CMDS::TXINNER) {
-			bool isLeftJoin = (ret == CMDS::TXLEFT);
-			bool isInnerJoin = (ret == CMDS::TXINNER || ret == CMDS::TXJOIN);
-			if (ret == CMDS::TXLEFT || ret == CMDS::TXINNER) {
+		while (ret == CMDS::TXJOIN || ret == CMDS::TXLEFT || ret == CMDS::TXRIGHT || ret == CMDS::TXINNER) {
+			// SELECT JOIN TYPE
+			JOIN_TYPE join_type;
+			switch (ret) {
+			case CMDS::TXLEFT:join_type = JOIN_TYPE::LEFT; break;
+			case CMDS::TXRIGHT:join_type = JOIN_TYPE::RIGHT; break;
+			default:join_type = JOIN_TYPE::INNER; break;
+			}
+			if (ret == CMDS::TXLEFT || ret == CMDS::TXRIGHT || ret == CMDS::TXINNER) {
 				if (chkToken(sql, token2, ret, CMDS::TXJOIN)) { err("JOIN NO JOIN COMMAND"); return -1; }
 			}
 			// JOINの次はテーブル名
