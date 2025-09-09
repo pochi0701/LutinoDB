@@ -88,6 +88,14 @@ CMDS   cmds[] = { CMDS::TXSELECT,CMDS::TXCREATE,  CMDS::TXINSERT,  CMDS::TXUPDAT
 				   // --- ここまで ---
 };
 
+enum class JOIN_TYPE {
+	NONE = 0,
+	LEFT,
+	RIGHT,
+	INNER,
+	OUTER,
+};
+
 /// <summary>
 /// コマンド数
 /// </summary>
@@ -489,8 +497,8 @@ public:
 		}
 		return num % RowNum[idx];
 	}
-#if 0
-	int Join(Table* tbl)
+#if 1
+	int Join(Table* tbl, JOIN_TYPE type)
 	{
 		vector<char> mat;
 		conditionMatTables(tbl, mat);
@@ -500,7 +508,7 @@ public:
 		vector<int> node;
 		int cnt = 0;
 		int flag;
-		if (LEFTJOIN) {
+		if (type == JOIN_TYPE::LEFT) {
 			for (unsigned int i = 0; i < Node.size(); i++) {
 				flag = 1;
 				for (unsigned int j = 0; j < tbl->node[0]->size(); j++) {
@@ -514,7 +522,7 @@ public:
 				}
 			}
 		}
-		else if (RIGHTJOIN) {
+		else if (type == JOIN_TYPE::RIGHT) {
 			//マトリックスの参照具合が違う
 			for (unsigned int j = 0; j < tbl->node[0]->size(); j++) {
 				flag = 1;
@@ -531,7 +539,7 @@ public:
 			}
 			//ADDと同じ
 		}
-		else if (INNERJOIN) {
+		else if (type == JOIN_TYPE::INNER) {
 			for (unsigned int i = 0; i < Node.size(); i++) {
 				flag = 1;
 				for (unsigned int j = 0; j < tbl->node[0]->size(); j++) {
