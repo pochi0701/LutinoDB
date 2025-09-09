@@ -517,8 +517,9 @@ public:
 						flag = 0;
 					}
 				}
-				//ないものを追加するにはどうするか？
+				// 条件不一致時は右側にNULL相当を追加
 				if (flag) {
+					node.push_back(makeno(i, -1, tbl->node[0]->size()));
 				}
 			}
 		}
@@ -532,8 +533,9 @@ public:
 						flag = 0;
 					}
 				}
-				//ないものを追加するにはどうするか？
+				// 条件不一致時は左側にNULL相当を追加
 				if (flag) {
+					node.push_back(makeno(-1, j, tbl->node[0]->size()));
 				}
 
 			}
@@ -550,7 +552,6 @@ public:
 				}
 			}
 		}
-		//ベクターコピー
 		Node.resize(node.size());
 		copy(node.begin(), node.end(), Node.begin());
 
@@ -1000,7 +1001,7 @@ Column::Column(const wString& tbl, const wString& nam, const dataType typ)
 		table = nam.substr(0, cutAt);
 		name = nam.substr(cutAt + 1);
 	}
-	type = typ;
+ type = typ;
 }
 /////////////////////////////////////////////////////////////////////////////
 //カラムコンストラクタ
