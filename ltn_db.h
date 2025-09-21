@@ -91,6 +91,13 @@ enum class CMDS {
 extern  CMDS  getToken(unsigned char* sql, unsigned char* token);
 extern  CMDS  getData(unsigned char* data, unsigned char* token);
 extern  int   chkToken(unsigned char* sql, unsigned char* token, CMDS& ret, CMDS cmd1, CMDS cmd2 = CMDS::TXOTHER);
+enum class JOIN_TYPE {
+	NONE = 0,
+	LEFT,
+	RIGHT,
+	INNER,
+	OUTER,
+};
 /////////////////////////////////////////////////////////////////////////////
 //条件クラス
 class condition
@@ -110,6 +117,10 @@ public:
 		clmalias.clear();
 		tblalias.clear();
 	}
+	/// <summary>
+	/// conditionオブジェクトの内容を現在のconditionオブジェクトにコピーします。
+	/// </summary>
+	/// <param name="_cond">コピー元のconditionオブジェクト。</param>
 	void copy(condition& _cond) {
 		//for cond
 		cond.resize(_cond.cond.size());
@@ -125,6 +136,11 @@ public:
 		clmalias = _cond.clmalias;
 		tblalias = _cond.tblalias;
 	}
+	/// <summary>
+	/// 指定された文字列とコマンドタイプをそれぞれ cond と type に追加します。
+	/// </summary>
+	/// <param name="arg">追加する文字列データへのポインタ。</param>
+	/// <param name="typ">追加するコマンドタイプ (CMDS 型)。</param>
 	void put(char* arg, CMDS typ) {
 		cond.push_back(arg);
 		type.push_back(typ);
@@ -136,22 +152,17 @@ class Table
 {
 private:
 	int				ref;          //read thread数
-//#ifdef linux
-//	pthread_mutex_t mutex;        //クリティカルセッションmutex
-//#else
-//	CRITICAL_SECTION cs;          //クリティカルセクション
-//#endif
 public:
-	wString         name;         //テーブル名
-	vector<Column*> column;       //カラム
-	vector<Node*>   node;         //各ノード
-	vector<int>     index;        //orderby等のフィルタ
+	/// <summary>テーブル名</summary>
+	wString         name;
+	/// <summary>カラム一覧</summary>
+	vector<Column*> column;
+	/// <summary>カラム毎のデータの集合</summary>
+	vector<Node*>   node;
+	/// <summary>orderby等のインデックス</summary>
+	vector<int>     index;
 	bool            changed;		// 変更されたか
-	////セッション管理
-	//void readStart();
-	//void readEnd();
-	//void writeStart();
-	//void writeEnd();
+
 	//テンプレート
 	Table(void);
 	//CSVからテーブル作成

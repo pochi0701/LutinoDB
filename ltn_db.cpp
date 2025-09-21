@@ -88,13 +88,7 @@ CMDS   cmds[] = { CMDS::TXSELECT,CMDS::TXCREATE,  CMDS::TXINSERT,  CMDS::TXUPDAT
 				   // --- ここまで ---
 };
 
-enum class JOIN_TYPE {
-	NONE = 0,
-	LEFT,
-	RIGHT,
-	INNER,
-	OUTER,
-};
+
 
 /// <summary>
 /// コマンド数
@@ -195,19 +189,23 @@ int compare(const wString& arg1, const wString& op, const wString& arg2, const d
 class view
 {
 private:
+	/// <summary>表示するテーブルリスト</summary>
 	vector<Table*>         Tables;
-	vector<int>            RowNum;//テーブル毎のノード数(行数)
+	/// <summary>テーブル毎のノード数(行数)</summary>
+	vector<int>            RowNum;
 	//カラムは順番がテーブル順ではないのでpairでテーブル参照できるようにする
 	vector<pair<int, int> > Column;//カラム情報(順番、テーブル番号)
 	vector<int>            Node;
 public:
 	int                    flag;
 	condition              cond;
+	condition              join_cond;
 	//コンストラクタ
-	view(condition& _cond)
+	view(condition& _cond,condition& _join_cond)
 	{
 		flag = 0;
 		cond.copy(_cond);
+		join_cond.copy(_join_cond);
 	}
 	//デストラクタ。クリティカルセクション抜ける
 	~view(void)
@@ -222,9 +220,10 @@ public:
 		Node.clear();
 		Tables.push_back(tbl);
 
+		/// <summary>追加したテーブルのインデックス((0,0),(1,0),,(0.1),(1,1)...)</summary>
 		int idx = (int)Tables.size() - 1;
 		//カラムコピー
-		Column.clear();
+		//Column.clear();
 		for (unsigned int i = 0; i < tbl->column.size(); i++) {
 			pair<int, int> clm;
 			clm.first = i;
@@ -245,9 +244,13 @@ public:
 		}
 		return 0;
 	}
-	/////////////////////////////////////////////////////////////////////////////
-	//条件配列生成
-	int conditionMatTables(Table* tbl, vector<char>& mat)
+	/// <summary>
+	/// 指定された条件に基づいて、テーブルの行をフィルタリングし、マッチする行をマスクベクトルに設定します。複数の論理条件（AND/OR）やカラム比較に対応しています。エラーが発生した場合は -1 を返します。正常終了時は 0 を返します。
+	/// </summary>
+	/// <param name="tbl">条件判定の対象となるテーブルへのポインタ。</param>
+	/// <param name="mat">条件判定結果を格納するマスクベクトル。関数内でクリア・再設定されます。</param>
+	/// <returns>条件判定が正常に完了した場合は 0、エラーが発生した場合は -1 を返します。</returns>
+	int conditionMatTables(Table* tbl, condition& cond_param, vector<char>& mat)
 	{
 		int  Tblno1 = -1;
 		int  Tblno2 = -1;
@@ -256,13 +259,13 @@ public:
 		dataType dtyp1 = dataType::STRING;
 		dataType dtyp2 = dataType::STRING;
 		//新テーブルひな形
-		if (cond.cond.size() % 4 != 0) {
+		if (cond_param.cond.size() % 4 != 0) {
 			err("SELECT:Illigal condition setting");
 			return -1;
 		}
 		vector<char> mat2;
 		//！！ここで使った条件はなくなる
-		tbl->condition_mat(cond, mat2);
+		tbl->condition_mat(cond_param, mat2);
 		//連結行の分1を設定
 		mat.clear();
 		mat.resize(Node.size() * tbl->node[0]->size());
@@ -273,36 +276,36 @@ public:
 			}
 		}
 		//各条件についてAND,a,>,4等
-		for (unsigned int ptr = 0; ptr < cond.cond.size(); ) {
+		for (unsigned int ptr = 0; ptr < cond_param.cond.size(); ) {
 			CMDS lop;
 			auto col1 = -1;
 			auto col2 = -1;
-			if (cond.type[ptr] == CMDS::TXOR || cond.type[ptr] == CMDS::TXAND) {
-				lop = cond.type[ptr];
+			if (cond_param.type[ptr] == CMDS::TXOR || cond_param.type[ptr] == CMDS::TXAND) {
+				lop = cond_param.type[ptr];
 			}
 			else {
 				err("SELECT:Logical Operation Error");
 				return -1;
 			}
 			//条件のコピー
-			auto arg1 = cond.cond[ptr + 1];
-			auto typ1 = cond.type[ptr + 1];
-			auto op = cond.cond[ptr + 2];
-			auto arg2 = cond.cond[ptr + 3];
-			auto typ2 = cond.type[ptr + 3];
+			auto arg1 = cond_param.cond[ptr + 1];
+			auto typ1 = cond_param.type[ptr + 1];
+			auto op = cond_param.cond[ptr + 2];
+			auto arg2 = cond_param.cond[ptr + 3];
+			auto typ2 = cond_param.type[ptr + 3];
 			//自テーブルカラムチェック
 			for (unsigned int i = 0; i < Column.size(); i++) {
 				int    idx = Column[i].first;
 				int    tno = Column[i].second;
 				Table* mytbl = Tables[tno];
-				if (mytbl->column[idx]->Compare(arg1, cond.clmalias, cond.tblalias)) {
+				if (mytbl->column[idx]->Compare(arg1, cond_param.clmalias, cond_param.tblalias)) {
 					if (col1 >= 0) { err("Column name arg1 is ambigous"); return -1; }
 					col1 = idx;
 					Tblno1 = tno;
 					colTbl1 = mytbl;
 					dtyp1 = mytbl->column[idx]->type;
 				}
-				if (mytbl->column[idx]->Compare(arg2, cond.clmalias, cond.tblalias)) {
+				if (mytbl->column[idx]->Compare(arg2, cond_param.clmalias, cond_param.tblalias)) {
 					if (col2 >= 0) { err("Column name arg1 is ambigous"); return -1; }
 					col2 = idx;
 					Tblno2 = tno;
@@ -312,14 +315,14 @@ public:
 			}
 			//参照テーブルカラムチェック
 			for (unsigned int i = 0; i < tbl->column.size(); i++) {
-				if (tbl->column[i]->Compare(arg1, cond.clmalias, cond.tblalias)) {
+				if (tbl->column[i]->Compare(arg1, cond_param.clmalias, cond_param.tblalias)) {
 					if (col1 >= 0) { err("Column name arg1 is ambigous."); return -1; }
 					col1 = i;
 					Tblno1 = -1;
 					colTbl1 = tbl;
 					dtyp1 = tbl->column[i]->type;
 				}
-				if (tbl->column[i]->Compare(arg2, cond.clmalias, cond.tblalias)) {
+				if (tbl->column[i]->Compare(arg2, cond_param.clmalias, cond_param.tblalias)) {
 					if (col2 >= 0) { err("Column name arg2 is ambigous."); return -1; }
 					col2 = i;
 					Tblno2 = -1;
@@ -366,8 +369,8 @@ public:
 				}
 			}
 			//４つ分消す
-			cond.cond.erase(cond.cond.begin() + ptr, cond.cond.begin() + ptr + 4);
-			cond.type.erase(cond.type.begin() + ptr, cond.type.begin() + ptr + 4);
+			cond_param.cond.erase(cond_param.cond.begin() + ptr, cond_param.cond.begin() + ptr + 4);
+			cond_param.type.erase(cond_param.type.begin() + ptr, cond_param.type.begin() + ptr + 4);
 		}
 		return 0;
 	}
@@ -376,7 +379,7 @@ public:
 	int Add(Table* tbl)
 	{
 		vector<char> mat;
-		conditionMatTables(tbl, mat);
+		conditionMatTables(tbl, cond, mat);
 		//ノード追加
 		vector<int> node;
 		int cnt = 0;
@@ -394,6 +397,79 @@ public:
 		//テーブル追加
 		Tables.push_back(tbl);
 		int idx = (int)Tables.size() - 1;
+		RowNum.push_back(tbl->node[0]->size());
+		//カラム追加
+		for (unsigned int i = 0; i < tbl->column.size(); i++) {
+			pair<int, int> clm;
+			clm.first = i;
+			clm.second = idx;
+			Column.push_back(clm);
+		}
+		return 0;
+	}
+
+	/// <summary>
+	/// 指定されたテーブルとJOINタイプに基づいて、ノードとカラム情報を結合します。
+	/// </summary>
+	/// <param name="tbl">結合対象となるTable型のポインタ。</param>
+	/// <param name="type">LEFT、RIGHT、INNERのいずれかのJOIN_TYPE。結合方法を指定します。</param>
+	/// <returns>常に0を返します。結合処理の結果はメンバー変数に反映されます。</returns>
+	int Join(Table* tbl, JOIN_TYPE type)
+	{
+		vector<char> mat;
+		conditionMatTables(tbl, join_cond, mat);
+		//ノード追加
+		vector<int> node;
+		int cnt = 0;
+		int flag;
+		if (type == JOIN_TYPE::LEFT) {
+			for (unsigned int i = 0; i < Node.size(); i++) {
+				flag = 1;
+				for (unsigned int j = 0; j < tbl->node[0]->size(); j++) {
+					if (mat[cnt++]) {
+						node.push_back(makeno(i, j, tbl->node[0]->size()));
+						flag = 0;
+					}
+				}
+				// 条件不一致時は右側にNULL相当を追加
+				if (flag) {
+					node.push_back(makeno(i, -1, tbl->node[0]->size()));
+				}
+			}
+		}
+		else if (type == JOIN_TYPE::RIGHT) {
+			//マトリックスの参照具合が違う
+			for (unsigned int j = 0; j < tbl->node[0]->size(); j++) {
+				flag = 1;
+				for (unsigned int i = 0; i < Node.size(); i++) {
+					if (mat[cnt++]) {
+						node.push_back(makeno(Node[i], j, tbl->node[0]->size()));
+						flag = 0;
+					}
+				}
+				// 条件不一致時は左側にNULL相当を追加
+				if (flag) {
+					node.push_back(makeno(-1, j, tbl->node[0]->size()));
+				}
+
+			}
+		}
+		else if (type == JOIN_TYPE::INNER) {
+			int cnt = 0;
+			for (unsigned int i = 0; i < Node.size(); i++) {
+				for (unsigned int j = 0; j < tbl->node[0]->size(); j++) {
+					if (mat[cnt++]) {
+						node.push_back(makeno(Node[i], j, tbl->node[0]->size()));
+					}
+				}
+			}
+		}
+		Node.resize(node.size());
+		copy(node.begin(), node.end(), Node.begin());
+
+		//テーブル追加
+		Tables.push_back(tbl);
+		int idx = Tables.size() - 1;
 		RowNum.push_back(tbl->node[0]->size());
 		//カラム追加
 		for (unsigned int i = 0; i < tbl->column.size(); i++) {
@@ -497,78 +573,7 @@ public:
 		}
 		return num % RowNum[idx];
 	}
-#if 1
-	int Join(Table* tbl, JOIN_TYPE type)
-	{
-		vector<char> mat;
-		conditionMatTables(tbl, mat);
 
-
-		//ノード追加
-		vector<int> node;
-		int cnt = 0;
-		int flag;
-		if (type == JOIN_TYPE::LEFT) {
-			for (unsigned int i = 0; i < Node.size(); i++) {
-				flag = 1;
-				for (unsigned int j = 0; j < tbl->node[0]->size(); j++) {
-					if (mat[cnt++]) {
-						node.push_back(makeno(i, j, tbl->node[0]->size()));
-						flag = 0;
-					}
-				}
-				// 条件不一致時は右側にNULL相当を追加
-				if (flag) {
-					node.push_back(makeno(i, -1, tbl->node[0]->size()));
-				}
-			}
-		}
-		else if (type == JOIN_TYPE::RIGHT) {
-			//マトリックスの参照具合が違う
-			for (unsigned int j = 0; j < tbl->node[0]->size(); j++) {
-				flag = 1;
-				for (unsigned int i = 0; i < Node.size(); i++) {
-					if (mat[cnt++]) {
-						node.push_back(makeno(i, j, tbl->node[0]->size()));
-						flag = 0;
-					}
-				}
-				// 条件不一致時は左側にNULL相当を追加
-				if (flag) {
-					node.push_back(makeno(-1, j, tbl->node[0]->size()));
-				}
-
-			}
-			//ADDと同じ
-		}
-		else if (type == JOIN_TYPE::INNER) {
-			for (unsigned int i = 0; i < Node.size(); i++) {
-				flag = 1;
-				for (unsigned int j = 0; j < tbl->node[0]->size(); j++) {
-					if (mat[cnt++]) {
-						node.push_back(makeno(i, j, tbl->node[0]->size()));
-						flag = 0;
-					}
-				}
-			}
-		}
-		Node.resize(node.size());
-		copy(node.begin(), node.end(), Node.begin());
-
-		//テーブル追加
-		Tables.push_back(tbl);
-		int idx = Tables.size() - 1;
-		RowNum.push_back(tbl->node[0]->size());
-		//カラム追加
-		for (unsigned int i = 0; i < tbl->column.size(); i++) {
-			pair<int, int> clm;
-			clm.first = i;
-			clm.second = idx;
-			Column.push_back(clm);
-		}
-		return 0;
-	}
-#endif
 	/////////////////////////////////////////////////////////////////////////////
 	/// <summary>
 	/// ノードサイズ
@@ -1356,8 +1361,12 @@ int Table::Insert(const vector<wString>& data)
 	//writeEnd ();
 	return 0;
 }
-/////////////////////////////////////////////////////////////////////////////
-//条件配列生成
+/// <summary>
+/// テーブルについて各行が条件を満たすかどうかを判定、結果を配列に設定
+/// </summary>
+/// <param name="cond">判定に使用する条件情報を格納したcondition構造体。</param>
+/// <param name="mat">各行が条件を満たすかどうかを示すマーク配列（参照渡し）。</param>
+/// <returns>正常終了時は0、エラー発生時は-1を返します。</returns>
 int Table::condition_mat(condition& cond, vector<char>& mat)
 {
 	dataType dtyp1 = dataType::STRING;
@@ -1404,7 +1413,7 @@ int Table::condition_mat(condition& cond, vector<char>& mat)
 				dtyp2 = column[i]->type;
 			}
 		}
-		//カラムがテーブルと合致しなくて、かつ文字列ではない場合
+		//テーブルのカラムの条件が合致しなくて、かつ比較対象が文字列ではない場合、消さないでスキップ
 		if ((col1 < 0 && typ1 == CMDS::TXARG) || (col2 < 0 && typ2 == CMDS::TXARG)) {
 			ptr += 4;
 			continue;
@@ -1658,6 +1667,7 @@ void Database::Save(void)
 int Database::SQL(const wString& sqltext, wString& retStr)
 {
 	condition        cond;
+	condition		 join_cond; // JOIN条件用
 	unsigned char    token[256];
 	unsigned char    token2[256];
 	unsigned char    sql[2048] = {};
@@ -1665,6 +1675,7 @@ int Database::SQL(const wString& sqltext, wString& retStr)
 	vector<wString>  colnams;
 	//　テーブル名
 	vector<wString>  tables;
+	vector<JOIN_TYPE> join_types; // JOINの種類
 	vector<wString>  values;
 	vector<wString>  order;
 	orderType        orderTyp = orderType::ASC;
@@ -1696,6 +1707,7 @@ int Database::SQL(const wString& sqltext, wString& retStr)
 				if (chkToken(sql, token, ret, CMDS::TXARG)) { err("SELECT NO ARG ERROR");   return -1; }//ARG
 				//エイリアス登録
 				cond.clmalias[reinterpret_cast<char*>(token)] = reinterpret_cast<char*>(token2);
+				join_cond.clmalias[reinterpret_cast<char*>(token)] = reinterpret_cast<char*>(token2);
 				ret = getToken(sql, token);
 			}
 			if (ret == CMDS::TXFROM)               break;
@@ -1705,11 +1717,13 @@ int Database::SQL(const wString& sqltext, wString& retStr)
 		for (;;) {
 			if (chkToken(sql, token2, ret, CMDS::TXARG)) { err("SELECT NO TABLE ERROR"); return -1; }//table
 			tables.push_back(reinterpret_cast<char*>(token2));
+			join_types.push_back(JOIN_TYPE::NONE); // 最初のテーブルはJOINなし
 			ret = getToken(sql, token);
 			if (ret == CMDS::TXAS) {
 				if (chkToken(sql, token, ret, CMDS::TXARG)) { err("SELECT NO ARG ERROR");   return -1; }//ARG
 				//テーブルエイリアス登録
 				cond.tblalias[reinterpret_cast<char*>(token)] = reinterpret_cast<char*>(token2);
+				join_cond.tblalias[reinterpret_cast<char*>(token)] = reinterpret_cast<char*>(token2);
 				ret = getToken(sql, token);
 			}
 			if (ret != CMDS::TXCM)                 break;
@@ -1730,25 +1744,28 @@ int Database::SQL(const wString& sqltext, wString& retStr)
 			// JOINの次はテーブル名
 			if (chkToken(sql, token2, ret, CMDS::TXARG)) { err("JOIN NO TABLE ERROR"); return -1; }
 			tables.push_back(reinterpret_cast<char*>(token2));
+			join_types.push_back(join_type);
+
 			ret = getToken(sql, token);
 			if (ret == CMDS::TXAS) {
 				if (chkToken(sql, token, ret, CMDS::TXARG)) { err("JOIN NO ARG ERROR");   return -1; }
 				cond.tblalias[reinterpret_cast<char*>(token)] = reinterpret_cast<char*>(token2);
+				join_cond.tblalias[reinterpret_cast<char*>(token)] = reinterpret_cast<char*>(token2);
 				ret = getToken(sql, token);
 			}
 			// ON句の処理
 			if (ret == CMDS::TXON) {
 				// ON 条件は4つのトークン (col1, op, col2, AND/OR)
-				cond.put(const_cast<char*>("AND"), CMDS::TXAND); // JOIN ONの最初はANDで
+				join_cond.put(const_cast<char*>("AND"), CMDS::TXAND); // JOIN ONの最初はANDで
 				for (;;) {
 					if (chkToken(sql, token, ret, CMDS::TXARG, CMDS::TXPRM)) { err("JOIN ON NO ARG"); return -1; }
-					cond.put(reinterpret_cast<char*>(token), ret);
+					join_cond.put(reinterpret_cast<char*>(token), ret);
 					if (chkToken(sql, token, ret, CMDS::TXOP)) { err("JOIN ON NO OPE"); return -1; }
-					cond.put(reinterpret_cast<char*>(token), ret);
+					join_cond.put(reinterpret_cast<char*>(token), ret);
 					if (chkToken(sql, token, ret, CMDS::TXARG, CMDS::TXPRM)) { err("JOIN ON NO ARG"); return -1; }
-					cond.put(reinterpret_cast<char*>(token), ret);
+					join_cond.put(reinterpret_cast<char*>(token), ret);
 					if (chkToken(sql, token, ret, CMDS::TXAND, CMDS::TXOR)) break;
-					cond.put(reinterpret_cast<char*>(token), ret);
+					join_cond.put(reinterpret_cast<char*>(token), ret);
 				}
 			}
 			ret = getToken(sql, token);
@@ -1807,15 +1824,27 @@ int Database::SQL(const wString& sqltext, wString& retStr)
 			}
 		}
 		//テーブル取得
-		vw = new view(cond);
+		vw = new view(cond,join_cond);
 		for (unsigned int i = 0; i < tables.size(); i++) {
-			if (i == 0) {
-				vw->Copy(tblList[tables[i]]);
-			}
-			else {
-				vw->Add(tblList[tables[i]]);
+			if (join_types[i] == JOIN_TYPE::NONE)
+			{
+				if (i == 0) {
+					vw->Copy(tblList[tables[i]]);
+				}
+				else {
+					//ADDが先行する？
+					vw->Add(tblList[tables[i]]);
+				}
 			}
 		}
+		//JOIN実行
+		for (unsigned int i = 0 ; i < tables.size(); i++) {
+			if (join_types[i] != JOIN_TYPE::NONE)
+			{
+				vw->Join(tblList[tables[i]], join_types[i]);
+			}
+		}
+
 		//WHERE実行
 		if (vw->cond.cond.size()) {
 			err("Is there more condition?");
