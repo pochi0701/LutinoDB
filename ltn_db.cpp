@@ -421,19 +421,19 @@ public:
 		//ノード追加
 		vector<int> node;
 		int cnt = 0;
-		int flag;
+		bool flag;
 		if (type == JOIN_TYPE::LEFT) {
 			for (unsigned int i = 0; i < Node.size(); i++) {
-				flag = 1;
+				flag = true;
 				for (unsigned int j = 0; j < tbl->node[0]->size(); j++) {
 					if (mat[cnt++]) {
-						node.push_back(makeno(i, j, tbl->node[0]->size()));
-						flag = 0;
+						node.push_back(makeno(Node[i], j, tbl->node[0]->size()));
+						flag = false;
 					}
 				}
 				// 条件不一致時は右側にNULL相当を追加
 				if (flag) {
-					node.push_back(makeno(i, -1, tbl->node[0]->size()));
+					node.push_back(makeno(Node[i], 1, tbl->node[0]->size()));
 				}
 			}
 		}
@@ -564,14 +564,14 @@ public:
 	//
 	int makeno(int base, int add, int radix)
 	{
-		return base * radix + add;
+		return base * (radix + 1) + add;
 	}
 	int getno(int num, int idx)
 	{
 		for (auto i = (int)RowNum.size() - 1; i > idx; i--) {
-			num /= RowNum[i];
+			num /= (RowNum[i] + 1);
 		}
-		return num % RowNum[idx];
+		return num % (RowNum[idx]+1);
 	}
 
 	/////////////////////////////////////////////////////////////////////////////
@@ -635,7 +635,12 @@ public:
 							auto k = Column[j].first;
 							int no = getno(ii, ntbl);
 							char work[1024];
-							sprintf(work, "%s%s", (cnt++ ? "\t" : ""), tbl->node[k]->getNode(no).c_str());
+							if (no < tbl->node[0]->size()) {
+								sprintf(work, "%s%s", (cnt++ ? "\t" : ""), tbl->node[k]->getNode(no).c_str());
+							}
+							else {
+								sprintf(work, "%s%s", (cnt++ ? "\t" : ""), "");
+							}
 							temp += work;
 						}
 						temp += "\n";
