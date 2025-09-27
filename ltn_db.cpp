@@ -46,7 +46,7 @@ char* err(const char* msg)
 	static char current[1024] = {};
 	static char backup[1024] = {};
 
-	printf(msg);
+	puts(msg);
 	if (*msg) {
 		strcpy(current, msg);
 		return NULL;
@@ -68,9 +68,9 @@ const char* ccmd[] = { "select","create",   "insert",  "update","delete",
 				   "use",   "and",      "or",      "as",    "help",
 				   "asc",   "desc",     "alter",   "add",   "after",
 				   "to",    "modify",   "rename",  "column","like",
-				   // --- 追加 ---
-				   "on",    "left",     "join",    "inner", "outer", "right"
-				   // --- ここまで ---
+	// --- 追加 ---
+	"on",    "left",     "join",    "inner", "outer", "right"
+	// --- ここまで ---
 };
 
 /// <summary>
@@ -83,9 +83,9 @@ CMDS   cmds[] = { CMDS::TXSELECT,CMDS::TXCREATE,  CMDS::TXINSERT,  CMDS::TXUPDAT
 				   CMDS::TXUSE,  CMDS::TXAND,      CMDS::TXOR,      CMDS::TXAS,    CMDS::TXHELP,
 				   CMDS::TXASC,  CMDS::TXDESC,     CMDS::TXALTER,   CMDS::TXADD,   CMDS::TXAFTER,
 				   CMDS::TXTO,   CMDS::TXMODIFY,   CMDS::TXRENAME,  CMDS::TXCOLUMN,CMDS::TXOP,
-				   // --- 追加 ---
-				   CMDS::TXON,   CMDS::TXLEFT,     CMDS::TXJOIN,   CMDS::TXINNER, CMDS::TXOUTER, CMDS::TXRIGHT
-				   // --- ここまで ---
+	// --- 追加 ---
+	CMDS::TXON,   CMDS::TXLEFT,     CMDS::TXJOIN,   CMDS::TXINNER, CMDS::TXOUTER, CMDS::TXRIGHT
+	// --- ここまで ---
 };
 
 
@@ -201,7 +201,7 @@ public:
 	condition              cond;
 	condition              join_cond;
 	//コンストラクタ
-	view(condition& _cond,condition& _join_cond)
+	view(condition& _cond, condition& _join_cond)
 	{
 		flag = 0;
 		cond.copy(_cond);
@@ -571,7 +571,7 @@ public:
 		for (auto i = (int)RowNum.size() - 1; i > idx; i--) {
 			num /= (RowNum[i] + 1);
 		}
-		return num % (RowNum[idx]+1);
+		return num % (RowNum[idx] + 1);
 	}
 
 	/////////////////////////////////////////////////////////////////////////////
@@ -868,7 +868,7 @@ CMDS getToken(unsigned char* sql, unsigned char* token)
 	//TRIM
 	while (*p == ' ')  p++;
 	//残りをコピー
-	while (*p)         *sql++ = *p++;
+	while (*p != 0 && *p != '\n')         *sql++ = *p++;
 	*sql = 0;
 	return ret;
 }
@@ -1011,7 +1011,7 @@ Column::Column(const wString& tbl, const wString& nam, const dataType typ)
 		table = nam.substr(0, cutAt);
 		name = nam.substr(cutAt + 1);
 	}
- type = typ;
+	type = typ;
 }
 /////////////////////////////////////////////////////////////////////////////
 //カラムコンストラクタ
@@ -1829,7 +1829,7 @@ int Database::SQL(const wString& sqltext, wString& retStr)
 			}
 		}
 		//テーブル取得
-		vw = new view(cond,join_cond);
+		vw = new view(cond, join_cond);
 		for (unsigned int i = 0; i < tables.size(); i++) {
 			if (join_types[i] == JOIN_TYPE::NONE)
 			{
@@ -1843,7 +1843,7 @@ int Database::SQL(const wString& sqltext, wString& retStr)
 			}
 		}
 		//JOIN実行
-		for (unsigned int i = 0 ; i < tables.size(); i++) {
+		for (unsigned int i = 0; i < tables.size(); i++) {
 			if (join_types[i] != JOIN_TYPE::NONE)
 			{
 				vw->Join(tblList[tables[i]], join_types[i]);
@@ -2193,11 +2193,11 @@ int Database::SQL(const wString& sqltext, wString& retStr)
 			err("What to do?");
 			return 0;
 		}
-	//ALTER TABLE TABLENAME ADD (COLUMN1 definition1,COLUMN2 definition2..)
-	//ALTER TABLE TABLENAME MODIFY (COLUMN1 definition1,COLUMN2 definition2..)
-	//ALTER TABLE TABLENAME RENAME TO NEWTABLENAME
-	//ALTER TABLE TABLENAME RENAME COLUMN OLDCOLUMN TO NEWCOLUMN
-	//ALTER TABLE TABLENAME DROP (COLUMN1, COLUMN2..);
+		//ALTER TABLE TABLENAME ADD (COLUMN1 definition1,COLUMN2 definition2..)
+		//ALTER TABLE TABLENAME MODIFY (COLUMN1 definition1,COLUMN2 definition2..)
+		//ALTER TABLE TABLENAME RENAME TO NEWTABLENAME
+		//ALTER TABLE TABLENAME RENAME COLUMN OLDCOLUMN TO NEWCOLUMN
+		//ALTER TABLE TABLENAME DROP (COLUMN1, COLUMN2..);
 
 	case CMDS::TXALTER:
 		if (chkToken(sql, token, ret, CMDS::TXTBL)) { err("ALTER TABLE SYNTAX ERROR");   return -1; }//tablename
@@ -2320,6 +2320,13 @@ int Database::SQL(const wString& sqltext, wString& retStr)
 				//テーブル名変更処理
 				tbl = tblList[tables[0]];
 				tbl->name = tables[1];
+				auto it = tblList.find(tables[0]);
+				if (it != tblList.end()) {
+					// 新しいキーで追加
+					tblList[tables[1]] = it->second;
+					// 古いキーを削除
+					tblList.erase(it);
+				}
 				//変更したことにする
 				tbl->node[0]->changed = true;
 			}
@@ -2332,9 +2339,10 @@ int Database::SQL(const wString& sqltext, wString& retStr)
 				//カラム名変更処理
 				tbl = tblList[tables[0]];
 				//カラム番号求める
-				for (unsigned int i = 0; i < columns.size(); i++) {
+				for (unsigned int i = 0; i < colnams.size(); i++) {
 					if (tbl->column[i]->Compare(colnams[0], cond.clmalias, cond.tblalias)) {
 						tbl->column[i]->name = colnams[1];
+						tbl->node[0]->changed = true;
 						return 0;
 					}
 				}
@@ -2802,7 +2810,7 @@ int main(int argc, char* argv[])
 			}
 			Database* db1 = catalog->DBConnect((char*)token);
 			if (db1) {
-		catalog->DBClose(db);
+				catalog->DBClose(db);
 				db = db1;
 				printf("OK\n");
 			}
