@@ -433,25 +433,24 @@ public:
 				}
 				// 条件不一致時は右側にNULL相当を追加
 				if (flag) {
-					node.push_back(makeno(Node[i], 1, tbl->node[0]->size()));
+					node.push_back(makeno(Node[i], tbl->node[0]->size(), tbl->node[0]->size()));
 				}
 			}
 		}
 		else if (type == JOIN_TYPE::RIGHT) {
 			//マトリックスの参照具合が違う
-			for (unsigned int j = 0; j < tbl->node[0]->size(); j++) {
-				flag = 1;
-				for (unsigned int i = 0; i < Node.size(); i++) {
+			for (unsigned int i = 0; i < Node.size(); i++) {
+				flag = true;
+				for (unsigned int j = 0; j < tbl->node[0]->size(); j++) {
 					if (mat[cnt++]) {
 						node.push_back(makeno(Node[i], j, tbl->node[0]->size()));
-						flag = 0;
+						flag = false;
 					}
 				}
-				// 条件不一致時は左側にNULL相当を追加
+				// 条件不一致時は右側にNULL相当を追加
 				if (flag) {
-					node.push_back(makeno(-1, j, tbl->node[0]->size()));
+					node.push_back(makeno(Node[i], tbl->node[0]->size(), tbl->node[0]->size()));
 				}
-
 			}
 		}
 		else if (type == JOIN_TYPE::INNER) {
@@ -702,7 +701,12 @@ public:
 					auto k = Column[j].first;
 					int no = getno(ii, ntbl);
 					char work[1024];
-					sprintf(work, "%s%s", (cnt++ ? "\t" : ""), tbl->node[k]->getNode(no).c_str());
+					if (no < tbl->node[0]->size()) {
+						sprintf(work, "%s%s", (cnt++ ? "\t" : ""), tbl->node[k]->getNode(no).c_str());
+					}
+					else {
+						sprintf(work, "%s%s", (cnt++ ? "\t" : ""), "");
+					}
 					temp += work;
 				}
 				temp += "\n";
@@ -762,7 +766,12 @@ public:
 						auto k = Column[j].first;
 						int no = getno(ii, ntbl);
 						char work[1024];
-						sprintf(work, "%s\"%s\":%s", (j ? "," : ""), clm[j].c_str(), tbl->node[k]->getNode(no).c_str());
+						if (no < tbl->node[0]->size()) {
+							sprintf(work, "%s\"%s\":%s", (j ? "," : ""), clm[j].c_str(), tbl->node[k]->getNode(no).c_str());
+						}
+						else {
+							sprintf(work, "%s\"%s\":%s", (j ? "," : ""), clm[j].c_str(), "");
+						}
 						temp += work;
 					}
 					temp += "}";
@@ -1122,15 +1131,6 @@ Table::Table(const char* myname, const char* mycolumn)
 	//クリティカルセクション初期化
 	ref = 0;
 	changed = false;
-	//#ifdef linux
-	//	pthread_mutexattr_t attr;
-	//	pthread_mutexattr_init (&attr);
-	//	pthread_mutexattr_settype (&attr, PTHREAD_MUTEX_RECURSIVE_NP);
-	//	pthread_mutex_init (&mutex, &attr);
-	//#else
-	//	InitializeCriticalSection (&cs);
-	//#endif
-		//writeStart ();
 	name = myname;
 	//clmnsにCSVインサート
 	unsigned char work[4096] = {};
@@ -1140,7 +1140,7 @@ Table::Table(const char* myname, const char* mycolumn)
 		auto ret = getData(work, token);
 		if (ret != CMDS::TXPRM) {
 			err("INVALID COLUMN NAME");
-			//writeEnd ();
+			clmns.clear();
 			return;
 		}
 		clmns.push_back(reinterpret_cast<char*>(token));
@@ -1164,7 +1164,6 @@ Table::Table(const char* myname, const char* mycolumn)
 		column.push_back(clm);
 		node.push_back(new Node(typs));
 	}
-	//writeEnd ();
 }
 /////////////////////////////////////////////////////////////////////////////
 //String配列からテーブル作成
@@ -1173,23 +1172,12 @@ Table::Table(const wString& myname, const vector<wString>& mycolumn)
 	//クリティカルセクション初期化
 	ref = 0;
 	changed = false;
-	//#ifdef linux
-	//	pthread_mutexattr_t attr;
-	//	pthread_mutexattr_init (&attr);
-	//	pthread_mutexattr_settype (&attr, PTHREAD_MUTEX_RECURSIVE_NP);
-	//	pthread_mutex_init (&mutex, &attr);
-	//#else
-	//	InitializeCriticalSection (&cs);
-	//#endif
-		//writeStart ();
-		//name = myname;
 	for (unsigned int i = 0; i < mycolumn.size(); i++) {
 		//Column* clm = new Column(name, mycolumn[i]);
 		auto clm = new Column(myname, mycolumn[i]);
 		column.push_back(clm);
 		node.push_back(new Node(clm->type));
 	}
-	//writeEnd ();
 }
 /////////////////////////////////////////////////////////////////////////////
 //カラム情報からテーブル作成
@@ -1198,22 +1186,13 @@ Table::Table(const wString& myname, const vector<Column*>& mycolumn)
 	//クリティカルセクション初期化
 	ref = 0;
 	changed = false;
-	//#ifdef linux
-	//	pthread_mutexattr_t attr;
-	//	pthread_mutexattr_init (&attr);
-	//	pthread_mutexattr_settype (&attr, PTHREAD_MUTEX_RECURSIVE_NP);
-	//	pthread_mutex_init (&mutex, &attr);
-	//#else
-	//	InitializeCriticalSection (&cs);
-	//#endif
-		//writeStart ();
 	name = myname;
 	for (unsigned int i = 0; i < mycolumn.size(); i++) {
 		Column* clm = new Column(mycolumn[i]);
 		column.push_back(clm);
 		node.push_back(new Node(clm->type));
 	}
-	//writeEnd ();
+
 }
 /////////////////////////////////////////////////////////////////////////////
 //デストラクタ
@@ -1225,60 +1204,11 @@ Table::~Table()
 	for (unsigned int i = 0; i < node.size(); i++) {
 		delete node[i];
 	}
-	//#ifdef linux
-	//#else
-	//	//クリティカルセクション破棄
-	//	DeleteCriticalSection (&cs);
-	//#endif
 }
-///////////////////////////////////////////////////////////////////////////////
-//void Table::readStart (void)
-//{
-//	//書き込みセッションはここで待つ
-//#ifdef linux
-//	pthread_mutex_lock (&mutex);
-//#else
-//	EnterCriticalSection (&cs);
-//#endif
-//	ref++;
-//#ifdef linux
-//	pthread_mutex_unlock (&mutex);
-//#else
-//	LeaveCriticalSection (&cs);
-//#endif
-//}
-/////////////////////////////////////////////////////////////////////////////////
-//void Table::readEnd (void)
-//{
-//	ref--;
-//}
-/////////////////////////////////////////////////////////////////////////////////
-//void Table::writeStart (void)
-//{
-//	//読み込み終了待ち。
-//	//読み込みが半端無く続くようであれば抜けづらいだろうが、まあいいか
-//	while (ref) { Sleep (10); }
-//#ifdef linux
-//	pthread_mutex_lock (&mutex);
-//#else
-//	EnterCriticalSection (&cs);
-//#endif
-//}
-/////////////////////////////////////////////////////////////////////////////////
-//void Table::writeEnd (void)
-//{
-//#ifdef linux
-//	pthread_mutex_unlock (&mutex);
-//#else
-//	LeaveCriticalSection (&cs);
-//#endif
-//}
 ///////////////////////////////////////////////////////////////////////////////
 //テーブルコピー
 void  Table::copy(Table* tbl)
 {
-	//tbl->writeStart ();
-	//writeStart ();
 	name = tbl->name;             //テーブル名
 	column.clear();
 	for (unsigned int i = 0; i < tbl->column.size(); i++) {
@@ -1288,9 +1218,6 @@ void  Table::copy(Table* tbl)
 	for (unsigned int i = 0; i < tbl->node.size(); i++) {
 		node.push_back(new Node(tbl->node[i]));
 	}
-	//writeEnd ();
-	//tbl->writeEnd ();
-	//vector<int>     index;        //orderby等のフィルタ
 }
 /////////////////////////////////////////////////////////////////////////////
 /// <summary>
@@ -1304,7 +1231,7 @@ int Table::Insert(const char* data)
 	vector<wString> tmp;
 	unsigned char work[4096] = {};
 	unsigned char token[1024];
-	//writeStart ();
+
 	//実行開始
 	strcpy(reinterpret_cast<char*>(work), const_cast<char*>(data));
 	for (;;) {
@@ -1329,11 +1256,9 @@ int Table::Insert(const char* data)
 	}
 	if (tmp.size() != column.size()) {
 		err("Invalid number of column");
-		//writeEnd ();
 		return -1;
 	}
 	Insert(tmp);
-	//writeEnd ();
 	return 0;
 }
 //テーブルインサート
@@ -1343,12 +1268,10 @@ int Table::Insert(const vector<wString>& clm, const vector<wString>& data)
 		err("Illigal number of data");
 		return -1;
 	}
-	//writeStart ();
 	//TODO:カラムと合致したデータを投入すること
 	for (unsigned int i = 0; i < data.size(); i++) {
 		node[i]->put(data[i].c_str());
 	}
-	//writeEnd ();
 	return 0;
 }
 /////////////////////////////////////////////////////////////////////////////
@@ -1359,11 +1282,9 @@ int Table::Insert(const vector<wString>& data)
 		err("Illigal number of data");
 		return -1;
 	}
-	//writeStart ();
 	for (unsigned int i = 0; i < data.size(); i++) {
 		node[i]->put(data[i]);
 	}
-	//writeEnd ();
 	return 0;
 }
 /// <summary>
@@ -1467,7 +1388,6 @@ int Table::Update(const vector<wString>& colnams, const vector<wString>& values,
 	}
 	//合致しない更新カラムがあった場合
 	if (matcol.size() != colnams.size()) { err("undefined column name found"); return -1; }
-	//writeStart ();
 	//条件配列生成
 	vector<char> mat;
 	if (condition_mat(cond, mat)) return -1;
@@ -1481,7 +1401,6 @@ int Table::Update(const vector<wString>& colnams, const vector<wString>& values,
 			}
 		}
 	}
-	//writeEnd ();
 	return 0;
 }
 /////////////////////////////////////////////////////////////////////////////
@@ -1491,7 +1410,6 @@ int Table::Delete(condition& cond)
 	//条件配列生成
 	vector<char> mat;
 	if (condition_mat(cond, mat)) return -1;
-	//writeStart ();
 	//後ろから実行
 	for (int i = node[0]->size() - 1; i >= 0; i--) {
 		//条件が合致するなら
@@ -1502,7 +1420,6 @@ int Table::Delete(condition& cond)
 			}
 		}
 	}
-	//writeEnd ();
 	return 0;
 }
 /////////////////////////////////////////////////////////////////////////////
@@ -1511,7 +1428,6 @@ int Table::LoadFromFile(bufrd* br)
 {
 	unsigned int len;
 	char work[1024];
-	//writeStart ();
 	//name復帰
 	for (;;) {
 		if (br->Read(&len, sizeof(unsigned int))) break;
@@ -1524,7 +1440,11 @@ int Table::LoadFromFile(bufrd* br)
 		if (br->Read(&len, sizeof(unsigned int)))  break;
 		for (unsigned int i = 0; i < len; i++) {
 			Column* clm = new Column();
-			if (clm->LoadFromFile(br) < 0)  break;
+			if (clm->LoadFromFile(br) < 0) {
+				delete clm;
+				column.clear();
+				break;
+			}
 			column.push_back(clm);
 		}
 
@@ -1533,14 +1453,14 @@ int Table::LoadFromFile(bufrd* br)
 		if (br->Read(&len, sizeof(unsigned int))) break;
 		for (unsigned int i = 0; i < len; i++) {
 			Node* nd = new Node(column[i]->type);
-			if (nd->LoadFromFile(br) < 0)  break;
+			if (nd->LoadFromFile(br) < 0) {
+				delete nd;
+				break;
+			}
 			node.push_back(nd);
 		}
-		//printf( "%s loaded\n", name.c_str() );
-		//writeEnd ();
 		return 0;
 	}
-	//writeEnd ();
 	return -1;
 }
 /////////////////////////////////////////////////////////////////////////////
@@ -1565,8 +1485,6 @@ void Table::SaveToFile(bufrd* br)
 	for (auto i = 0U; i < len; i++) {
 		node[i]->SaveToFile(br);
 	}
-	//printf( "%s saved\n", name.c_str() );
-	//readEnd ();
 }
 ////////////////////////////////////////////////////////////////////////////
 //テーブル変更の有無を調べる
@@ -1588,9 +1506,7 @@ bool Table::isChanged(void)
 ////////////////////////////////////////////////////////////////////////////
 Database::Database(const wString& myname)
 {
-	//name = myname;
 	wString path = current_dir + DELIMITER + "database" + DELIMITER;
-	//load_from_file(path + name + ".db");
 	LoadFromFile(path + myname + ".db");
 	// 自分の名前を設定する
 	this->name = myname;
@@ -1642,30 +1558,10 @@ void Database::Save(void)
 		}
 	}
 
-	//map<wString, Table*>::iterator it;
-	//for (it = tblList.begin(); it != tblList.end(); it++) {
-	//	// テーブルを消された場合、全ファイル更新
-	//	if (it->second->isChanged() || this->changed)
-	//	{
-	//		//bakファイル削除
-	//		if (wString::file_exists((path + name + ".db.bak")) == 0) {
-	//			wString::delete_file(path + name + ".db.bak");
-	//		}
-	//		wString::rename_file(path + name + ".db", path + name + ".db.bak");
-	//		//保存(テーブルも保存される）
-	//		if (save_to_file(path + name + ".db") == 0) {
-	//		}
-	//		break;
-	//	}
-	//}
 	//テーブル保存
-	//map<wString,Table*>::iterator it;
 	for (auto const& x : tblList) {
 		delete x.second;
 	}
-	//for (it = tblList.begin(); it != tblList.end(); it++) {
-	//	delete it->second;
-	//}
 }
 ////////////////////////////////////////////////////////////////////////////
 //-1:エラー
@@ -2430,6 +2326,7 @@ int Database::LoadFromFile(wString file)
 	tblList.clear();
 	if (wString::file_exists(file)) {
 		if (br->ropen(file)) {
+			delete br;
 			return -1;
 		}
 		//ファイルがない場合終了
@@ -2443,6 +2340,8 @@ int Database::LoadFromFile(wString file)
 	for (unsigned int i = 0; i < max; i++) {
 		Table* tbl = new Table();
 		if (tbl->LoadFromFile(br) < 0) {
+			delete tbl;
+			delete br;
 			err("table load error\n");
 			return -1;
 		}

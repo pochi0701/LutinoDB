@@ -195,6 +195,10 @@ public:
 	void SaveToFile(bufrd* br);
 	//変更しらべ
 	bool isChanged(void);
+	//格納行数
+	inline unsigned int Count() {
+		return node[0]->size();
+	}
 };
 
 /////////////////////////////////////////////////////////////////////////////
