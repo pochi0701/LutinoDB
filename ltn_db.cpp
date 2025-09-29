@@ -219,9 +219,10 @@ public:
 		Column.clear();
 		Node.clear();
 		Tables.push_back(tbl);
+		const int ROWNUM = (int)tbl->node[0]->size();
 
 		/// <summary>追加したテーブルのインデックス((0,0),(1,0),,(0.1),(1,1)...)</summary>
-		int idx = (int)Tables.size() - 1;
+		const int idx = (int)Tables.size() - 1;
 		//カラムコピー
 		//Column.clear();
 		for (unsigned int i = 0; i < tbl->column.size(); i++) {
@@ -230,13 +231,13 @@ public:
 			clm.second = idx;
 			Column.push_back(clm);
 		}
-		RowNum.push_back(tbl->node[0]->size());
+		RowNum.push_back(ROWNUM);
 		//条件を取得
 		vector<char> mat;
 		tbl->condition_mat(cond, mat);
 		//ノードコピー
 		if (tbl->node.size()) {
-			for (unsigned int i = 0; i < tbl->node[0]->size(); i++) {
+			for (unsigned int i = 0; i < ROWNUM; i++) {
 				if (mat[i]) {
 					Node.push_back(i);
 				}
@@ -263,15 +264,16 @@ public:
 			err("SELECT:Illigal condition setting");
 			return -1;
 		}
+		const int ROWNUM = (int)tbl->node[0]->size();
 		vector<char> mat2;
 		//！！ここで使った条件はなくなる
 		tbl->condition_mat(cond_param, mat2);
 		//連結行の分1を設定
 		mat.clear();
-		mat.resize(Node.size() * tbl->node[0]->size());
+		mat.resize(Node.size() * ROWNUM);
 		int cnt = 0;
 		for (unsigned int i = 0; i < Node.size(); i++) {
-			for (unsigned int j = 0; j < tbl->node[0]->size(); j++) {
+			for (unsigned int j = 0; j < ROWNUM; j++) {
 				mat[cnt++] = mat2[j];
 			}
 		}
@@ -347,7 +349,7 @@ public:
 				if (Tblno1 >= 0 && col1 >= 0) rarg1 = colTbl1->node[col1]->getNodeNative(getno(ii, Tblno1));
 				if (Tblno2 >= 0 && col2 >= 0) rarg2 = colTbl2->node[col2]->getNodeNative(getno(ii, Tblno2));
 				//参照テーブル全行について
-				for (unsigned int j = 0; j < tbl->node[0]->size(); j++) {
+				for (unsigned int j = 0; j < ROWNUM; j++) {
 					if (Tblno1 < 0 && col1 >= 0) rarg1 = tbl->node[col1]->getNodeNative(j);
 					if (Tblno2 < 0 && col2 >= 0) rarg2 = tbl->node[col2]->getNodeNative(j);
 					//条件が合致するなら
@@ -379,14 +381,15 @@ public:
 	int Add(Table* tbl)
 	{
 		vector<char> mat;
+		const int ROWNUM = (int)tbl->node[0]->size();
 		conditionMatTables(tbl, cond, mat);
 		//ノード追加
 		vector<int> node;
 		int cnt = 0;
 		for (unsigned int i = 0; i < Node.size(); i++) {
-			for (unsigned int j = 0; j < tbl->node[0]->size(); j++) {
+			for (unsigned int j = 0; j < ROWNUM; j++) {
 				if (mat[cnt++]) {
-					node.push_back(makeno(Node[i], j, tbl->node[0]->size()));
+					node.push_back(makeno(Node[i], j, ROWNUM));
 				}
 			}
 		}
@@ -397,7 +400,7 @@ public:
 		//テーブル追加
 		Tables.push_back(tbl);
 		int idx = (int)Tables.size() - 1;
-		RowNum.push_back(tbl->node[0]->size());
+		RowNum.push_back(ROWNUM);
 		//カラム追加
 		for (unsigned int i = 0; i < tbl->column.size(); i++) {
 			pair<int, int> clm;
@@ -418,6 +421,7 @@ public:
 	{
 		vector<char> mat;
 		conditionMatTables(tbl, join_cond, mat);
+		const int ROWNUM = (int)tbl->node[0]->size();
 		//ノード追加
 		vector<int> node;
 		int cnt = 0;
@@ -425,15 +429,15 @@ public:
 		if (type == JOIN_TYPE::LEFT) {
 			for (unsigned int i = 0; i < Node.size(); i++) {
 				flag = true;
-				for (unsigned int j = 0; j < tbl->node[0]->size(); j++) {
+				for (unsigned int j = 0; j < ROWNUM; j++) {
 					if (mat[cnt++]) {
-						node.push_back(makeno(Node[i], j, tbl->node[0]->size()));
+						node.push_back(makeno(Node[i], j, ROWNUM));
 						flag = false;
 					}
 				}
 				// 条件不一致時は右側にNULL相当を追加
 				if (flag) {
-					node.push_back(makeno(Node[i], tbl->node[0]->size(), tbl->node[0]->size()));
+					node.push_back(makeno(Node[i], ROWNUM, ROWNUM));
 				}
 			}
 		}
@@ -441,24 +445,24 @@ public:
 			//マトリックスの参照具合が違う
 			for (unsigned int i = 0; i < Node.size(); i++) {
 				flag = true;
-				for (unsigned int j = 0; j < tbl->node[0]->size(); j++) {
+				for (unsigned int j = 0; j < ROWNUM; j++) {
 					if (mat[cnt++]) {
-						node.push_back(makeno(Node[i], j, tbl->node[0]->size()));
+						node.push_back(makeno(Node[i], j, ROWNUM));
 						flag = false;
 					}
 				}
 				// 条件不一致時は右側にNULL相当を追加
 				if (flag) {
-					node.push_back(makeno(Node[i], tbl->node[0]->size(), tbl->node[0]->size()));
+					node.push_back(makeno(Node[i], ROWNUM, ROWNUM));
 				}
 			}
 		}
 		else if (type == JOIN_TYPE::INNER) {
 			int cnt = 0;
 			for (unsigned int i = 0; i < Node.size(); i++) {
-				for (unsigned int j = 0; j < tbl->node[0]->size(); j++) {
+				for (unsigned int j = 0; j < ROWNUM; j++) {
 					if (mat[cnt++]) {
-						node.push_back(makeno(Node[i], j, tbl->node[0]->size()));
+						node.push_back(makeno(Node[i], j, ROWNUM));
 					}
 				}
 			}
@@ -469,7 +473,7 @@ public:
 		//テーブル追加
 		Tables.push_back(tbl);
 		int idx = Tables.size() - 1;
-		RowNum.push_back(tbl->node[0]->size());
+		RowNum.push_back(ROWNUM);
 		//カラム追加
 		for (unsigned int i = 0; i < tbl->column.size(); i++) {
 			pair<int, int> clm;
@@ -2639,11 +2643,6 @@ DBCatalog::~DBCatalog(void)
 		wString nam = x.first;
 		_DBDisConnect(nam);
 	}
-	//map<wString, Database*>::iterator it;
-	//for (it = connects->begin(); it != connects->end(); it++) {
-	//	wString nam = it->first;
-	//	_DBDisConnect(nam);
-	//}
 	delete connects;
 	SaveToFile();
 }
