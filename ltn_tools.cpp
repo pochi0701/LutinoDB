@@ -20,6 +20,7 @@
 #include  <sys/types.h>
 #include  <sys/stat.h>
 #include  <time.h>
+#include  <new>
 
 #ifdef linux
 #include  <fcntl.h>
@@ -268,9 +269,9 @@ void    cut_before_n_length(char* sentence, unsigned int n)
 	if (sentence_len <= n) {
 		return;
 	}
-	// テンポラリエリアmalloc.
-	auto malloc_p = static_cast<char*>(malloc(sentence_len + 10));
-	if (malloc_p == NULL) {
+	// テンポラリエリア確保.
+	auto malloc_p = new(std::nothrow) char[sentence_len + 10];
+	if (malloc_p == nullptr) {
 		return;
 	}
 	auto work_p = sentence;
@@ -278,7 +279,7 @@ void    cut_before_n_length(char* sentence, unsigned int n)
 	work_p -= n;
 	strncpy(malloc_p, work_p, sentence_len + 10);
 	strncpy(sentence, malloc_p, sentence_len);
-	free(malloc_p);
+	delete[] malloc_p;
 	return;
 }
 /// <summary>
@@ -671,7 +672,10 @@ char* path_sanitize(char* orig_dir, size_t dir_size)
 	size_t malloc_len;
 	if (orig_dir == NULL) return NULL;
 	malloc_len = strlen(orig_dir) * 2;
-	buf = (char*)malloc(malloc_len);
+	buf = new(std::nothrow) char[malloc_len];
+	if (buf == nullptr) {
+		return NULL;
+	}
 	buf[0] = '\0';
 	p = buf;
 	dir = q = orig_dir;
@@ -701,7 +705,7 @@ char* path_sanitize(char* orig_dir, size_t dir_size)
 	else {
 		strncpy(orig_dir, buf, dir_size);
 	}
-	free(buf);
+	delete[] buf;
 #endif
 	return orig_dir;
 }

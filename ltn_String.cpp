@@ -14,7 +14,6 @@
 #pragma comment(lib, "shlwapi.lib")
 #include <stdio.h>
 #include <string.h>
-#include <malloc.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 //#include <dirent.h>
@@ -2276,8 +2275,7 @@ wString wString::http_get(const char* url, off_t offset)
 	// ================
 	// 実体転送開始
 	// ================
-	//buf = (char*)malloc(HTTP_BUF_SIZE);
-	//ptr = buf;
+
 	//準備
 	//アドレスから、ホスト名とターゲットを取得
 	ptr.set_length(HTTP_STR_BUF_SIZE + 1);

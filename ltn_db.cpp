@@ -1,6 +1,8 @@
 ﻿// ==========================================================================
-//code=UTF8	 matérielsfileName(current_dir + DELIMITER + "database" + DELIMITER);
-// Lutino: Application Server.
+//code=UTF8	tab=4
+//
+// Lutino:	Application SErver.
+//
 // ltn_db.cpp
 // $Revision: 1.0 $
 // $Date: 2025/09/02 11:35:00 $
@@ -52,6 +54,7 @@ char* err(const char* msg)
 		return NULL;
 	}
 	else {
+		// 読みだしたので消す
 		strcpy(backup, current);
 		*current = 0;
 		return backup;
@@ -456,6 +459,7 @@ public:
 				}
 			}
 		}
+		//ベクターコピー
 		Node.resize(node.size());
 		copy(node.begin(), node.end(), Node.begin());
 
@@ -2316,9 +2320,9 @@ int Database::SQL(const wString& sqltext, wString& retStr)
 			"DROP table_name;\n"
 			"ALTER TABLE TABLENAME ADD (COLUMN1 definition1,COLUMN2 definition2..);\n"
 			"ALTER TABLE TABLENAME MODIFY (COLUMN1 definition1,COLUMN2 definition2..);\n"
+			"ALTER TABLE TABLENAME DROP (COLUMN1, COLUMN2..);;\n"
 			"ALTER TABLE TABLENAME RENAME TO NEWTABLENAME;\n"
 			"ALTER TABLE TABLENAME RENAME COLUMN OLDCOLUMN TO NEWCOLUMN;\n"
-			"ALTER TABLE TABLENAME DROP (COLUMN1, COLUMN2..);\n"
 			"select/insert/update/delete..\n");
 #else
 		retStr =
@@ -2609,6 +2613,7 @@ int _DBDisConnect(wString& key)
 	if (connects->count(key) > 0) {
 		Database* db = (*connects)[key];
 		catalog->DBClose(db);
+		//connects->erase (key);
 		return 0;
 	}
 	return -1;
@@ -2776,3 +2781,9 @@ int main(int argc, char* argv[])
 	return 0;
 }
 #endif
+//---------------------------------------------------------------------------
+
+
+
+
+

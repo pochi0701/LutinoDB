@@ -2,7 +2,6 @@
 #define LTN_STRINGH
 #include <stdio.h>
 #include <string.h>
-#include <malloc.h>
 #include <fcntl.h>
 //#include <dirent.h>
 #include <assert.h>
