@@ -62,30 +62,28 @@ char* err(const char* msg)
 /// DB用コマンド
 /// </summary>
 const char* ccmd[] = { "select","create",   "insert",  "update","delete",
-				   "drop",  "from",     "into",    "where", "show",
-				   "order", "by",       "set",     "limit", "tables",
-				   "table", "databases","database","values","quit",
-				   "use",   "and",      "or",      "as",    "help",
-				   "asc",   "desc",     "alter",   "add",   "after",
-				   "to",    "modify",   "rename",  "column","like",
-	// --- 追加 ---
-	"on",    "left",     "join",    "inner", "outer", "right"
-	// --- ここまで ---
+				       "drop",  "from",     "into",    "where", "show",
+				       "order", "by",       "set",     "limit", "tables",
+				       "table", "databases","database","values","quit",
+				       "use",   "and",      "or",      "as",    "help",
+				       "asc",   "desc",     "alter",   "add",   "after",
+				       "to",    "modify",   "rename",  "column","like",
+				       "on",    "left",     "join",    "inner", "outer", 
+	                   "right"
 };
 
 /// <summary>
 /// ENUMでの表現
 /// </summary>
 CMDS   cmds[] = { CMDS::TXSELECT,CMDS::TXCREATE,  CMDS::TXINSERT,  CMDS::TXUPDATE,CMDS::TXDELETE,
-				   CMDS::TXDROP, CMDS::TXFROM,     CMDS::TXINTO,    CMDS::TXWHERE, CMDS::TXSHOW,
-				   CMDS::TXORDER,CMDS::TXBY,       CMDS::TXSET,     CMDS::TXLIMIT, CMDS::TXTABLES,
-				   CMDS::TXTBL,  CMDS::TXDATABASES,CMDS::TXDATABASE,CMDS::TXVALUES,CMDS::TXQUIT,
-				   CMDS::TXUSE,  CMDS::TXAND,      CMDS::TXOR,      CMDS::TXAS,    CMDS::TXHELP,
-				   CMDS::TXASC,  CMDS::TXDESC,     CMDS::TXALTER,   CMDS::TXADD,   CMDS::TXAFTER,
-				   CMDS::TXTO,   CMDS::TXMODIFY,   CMDS::TXRENAME,  CMDS::TXCOLUMN,CMDS::TXOP,
-	// --- 追加 ---
-	CMDS::TXON,   CMDS::TXLEFT,     CMDS::TXJOIN,   CMDS::TXINNER, CMDS::TXOUTER, CMDS::TXRIGHT
-	// --- ここまで ---
+				  CMDS::TXDROP, CMDS::TXFROM,     CMDS::TXINTO,    CMDS::TXWHERE, CMDS::TXSHOW,
+				  CMDS::TXORDER,CMDS::TXBY,       CMDS::TXSET,     CMDS::TXLIMIT, CMDS::TXTABLES,
+				  CMDS::TXTBL,  CMDS::TXDATABASES,CMDS::TXDATABASE,CMDS::TXVALUES,CMDS::TXQUIT,
+				  CMDS::TXUSE,  CMDS::TXAND,      CMDS::TXOR,      CMDS::TXAS,    CMDS::TXHELP,
+				  CMDS::TXASC,  CMDS::TXDESC,     CMDS::TXALTER,   CMDS::TXADD,   CMDS::TXAFTER,
+				  CMDS::TXTO,   CMDS::TXMODIFY,   CMDS::TXRENAME,  CMDS::TXCOLUMN,CMDS::TXOP,
+                  CMDS::TXON,   CMDS::TXLEFT,     CMDS::TXJOIN,    CMDS::TXINNER, CMDS::TXOUTER,
+	              CMDS::TXRIGHT
 };
 
 
@@ -94,23 +92,18 @@ CMDS   cmds[] = { CMDS::TXSELECT,CMDS::TXCREATE,  CMDS::TXINSERT,  CMDS::TXUPDAT
 /// コマンド数
 /// </summary>
 const unsigned int cmdNum = sizeof(cmds) / sizeof(cmds[0]);
-
 /// <summary>
 /// wString型のキーとDatabase型のポインタを関連付けるマップへのポインタです。
 /// </summary>
 map<wString, Database*>* connects;
-
-
 /// <summary>
 /// データベースカタログを指すポインタです。
 /// </summary>
 DBCatalog* catalog;
-
 /// <summary>
 /// スレッド間での排他制御を提供するミューテックスオブジェクトです。
 /// </summary>
 std::mutex mtx;
-
 /// <summary>
 /// 2つの値を指定された演算子とデータ型で比較します。文字列型の場合はLIKE演算子による部分一致や前方・後方一致もサポートします。数値型の場合は数値として比較します。型が異なる場合は適切に変換して比較します。比較結果を整数値で返します。
 /// </summary>
@@ -224,11 +217,8 @@ public:
 		/// <summary>追加したテーブルのインデックス((0,0),(1,0),,(0.1),(1,1)...)</summary>
 		const int idx = (int)Tables.size() - 1;
 		//カラムコピー
-		//Column.clear();
 		for (unsigned int i = 0; i < tbl->column.size(); i++) {
-			pair<int, int> clm;
-			clm.first = i;
-			clm.second = idx;
+			pair<int, int> clm(i, idx);
 			Column.push_back(clm);
 		}
 		RowNum.push_back(ROWNUM);
@@ -403,9 +393,7 @@ public:
 		RowNum.push_back(ROWNUM);
 		//カラム追加
 		for (unsigned int i = 0; i < tbl->column.size(); i++) {
-			pair<int, int> clm;
-			clm.first = i;
-			clm.second = idx;
+			pair<int, int> clm(i, idx);
 			Column.push_back(clm);
 		}
 		return 0;
@@ -456,6 +444,7 @@ public:
 					node.push_back(makeno(Node[i], ROWNUM, ROWNUM));
 				}
 			}
+
 		}
 		else if (type == JOIN_TYPE::INNER) {
 			int cnt = 0;
@@ -476,10 +465,13 @@ public:
 		RowNum.push_back(ROWNUM);
 		//カラム追加
 		for (unsigned int i = 0; i < tbl->column.size(); i++) {
-			pair<int, int> clm;
-			clm.first = i;
-			clm.second = idx;
-			Column.push_back(clm);
+			pair<int, int> clm(i, idx);
+			if (type != JOIN_TYPE::RIGHT) {
+				Column.push_back(clm);
+			}
+			else {
+				Column.insert(Column.begin() + i, clm);
+			}
 		}
 		return 0;
 	}
@@ -586,7 +578,6 @@ public:
 	{
 		return (int)Node.size();
 	}
-
 	/////////////////////////////////////////////////////////////////////////////
 #ifdef CMDLINE
 	wString toJSON(int row = -2)
@@ -886,8 +877,6 @@ CMDS getToken(unsigned char* sql, unsigned char* token)
 	return ret;
 }
 ////////////////////////////////////////////////////////////////////////////
-
-
 /// <summary>
 /// CSVからのトークン取得
 /// </summary>
@@ -995,24 +984,36 @@ CMDS getData(unsigned char* data, unsigned char* token)
 	*data = 0;
 	return ret;
 }
-////////////////////////////////////////////////////////////////////////////
-//CMD Check
+
+/// <summary>
+/// 2つのコマンドと取得したトークンを比較し、一致しない場合に真を返します。
+/// </summary>
+/// <param name="sql">SQL文を表すバイト列へのポインタ。</param>
+/// <param name="token">トークンを格納するためのバイト列へのポインタ。</param>
+/// <param name="ret">取得したトークンのコマンド種別を格納する参照。</param>
+/// <param name="cmd1">比較対象となる1つ目のコマンド種別。</param>
+/// <param name="cmd2">比較対象となる2つ目のコマンド種別。</param>
+/// <returns>取得したトークンがcmd1およびcmd2のいずれとも一致しない場合は1、それ以外は0を返します。</returns>
 int chkToken(unsigned char* sql, unsigned char* token, CMDS& ret, CMDS cmd1, CMDS cmd2)
 {
 	ret = getToken(sql, token);
 	return (cmd1 != ret && cmd2 != ret);
 }
-/////////////////////////////////////////////////////////////////////////////
-//カラムクラス
-//カラムコンストラクタ
+/// <summary>
+///	カラムコンストラクタ
+/// </summary>
 Column::Column(void)
 {
 	table = "";//取得元テーブル名
 	name = ""; //カラム名
 	type = dataType::STRING; //データ型
 }
-/////////////////////////////////////////////////////////////////////////////
-//カラムコンストラクタ
+/// <summary>
+/// テーブル名とカラム名、データ型からColumnオブジェクトを構築します。
+/// </summary>
+/// <param name="tbl">テーブル名を表すwString型の値。</param>
+/// <param name="nam">カラム名、または「テーブル名.カラム名」の形式のwString型の値。</param>
+/// <param name="typ">カラムのデータ型を表すdataType型の値。</param>
 Column::Column(const wString& tbl, const wString& nam, const dataType typ)
 {
 	int cutAt = nam.find(".");
@@ -1026,16 +1027,23 @@ Column::Column(const wString& tbl, const wString& nam, const dataType typ)
 	}
 	type = typ;
 }
-/////////////////////////////////////////////////////////////////////////////
-//カラムコンストラクタ
+/// <summary>
+/// Column クラスのコピーコンストラクタです。
+/// </summary>
+/// <param name="clm">コピー元となる Column オブジェクトへのポインタ。</param>
 Column::Column(const Column* clm)
 {
 	table = clm->table;
 	name = clm->name;
 	type = clm->type;
 }
-/////////////////////////////////////////////////////////////////////////////
-//テーブル名有無とエイリアスを考慮した合致選択 select = TableName.ColumnName
+/// <summary>
+/// 指定されたカラム名とテーブルエイリアスに基づいて、カラムが一致するかどうかを比較します。
+/// </summary>
+/// <param name="select">比較対象となるカラム名またはテーブル名付きカラム名。</param>
+/// <param name="clmalias">カラム名のエイリアスマッピング（wString型のキーと値のマップ）。</param>
+/// <param name="tblalias">テーブル名のエイリアスマッピング（wString型のキーと値のマップ）。</param>
+/// <returns>カラムが一致する場合は1、一致しない場合は0を返します。</returns>
 int Column::Compare(wString select, map<wString, wString>& clmalias, map<wString, wString>& tblalias)
 {
 	//全体比較
@@ -1054,8 +1062,13 @@ int Column::Compare(wString select, map<wString, wString>& clmalias, map<wString
 		return (table == ot && nm == name);
 	}
 }
-/////////////////////////////////////////////////////////////////////////////
-//エイリアス名の取得
+/// <summary>
+/// マップから条件に一致するエイリアスを検索し、見つかった場合は alias に設定します。
+/// </summary>
+/// <param name="clmalias">列名とエイリアスのマッピングを格納するマップ。参照で渡されます。</param>
+/// <param name="tblalias">テーブル名とエイリアスのマッピングを格納するマップ。参照で渡されます。</param>
+/// <param name="alias">見つかったエイリアスを格納するための変数。参照で渡されます。</param>
+/// <returns>条件に一致するエイリアスが見つかった場合は true (1)、見つからなかった場合は false (0) を返します。</returns>
 int Column::GetAlias(map<wString, wString>& clmalias, map<wString, wString>& tblalias, wString& alias)
 {
 	//clmaliasからsecondでループ比較
@@ -1068,8 +1081,10 @@ int Column::GetAlias(map<wString, wString>& clmalias, map<wString, wString>& tbl
 	}
 	return false;
 }
-/////////////////////////////////////////////////////////////////////////////
-//カラム保存
+/// <summary>
+/// カラム情報をファイルに保存します。
+/// </summary>
+/// <param name="br">書き込み先のバッファリーダーへのポインタ。</param>
 void Column::SaveToFile(bufrd* br)
 {
 	unsigned char  len;
@@ -1086,8 +1101,11 @@ void Column::SaveToFile(bufrd* br)
 	uctp = (unsigned char)type;
 	br->Write(&uctp, sizeof(uctp));
 }
-/////////////////////////////////////////////////////////////////////////////
-//カラム復帰
+/// <summary>
+/// ファイルからカラム情報を読み込みます。
+/// </summary>
+/// <param name="br">データを読み込むためのバッファリーダーへのポインタ。</param>
+/// <returns>正常に読み込めた場合は0、エラーが発生した場合は-1を返します。</returns>
 int Column::LoadFromFile(bufrd* br)
 {
 	unsigned char  len;
@@ -1117,18 +1135,12 @@ Table::Table(void)
 {
 	ref = 0;
 	changed = false;
-	//クリティカルセクション初期化
-//#ifdef linux
-//	pthread_mutexattr_t attr;
-//	pthread_mutexattr_init (&attr);
-//	pthread_mutexattr_settype (&attr, PTHREAD_MUTEX_RECURSIVE_NP);
-//	pthread_mutex_init (&mutex, &attr);
-//#else
-//	InitializeCriticalSection (&cs);
-//#endif
 }
-/////////////////////////////////////////////////////////////////////////////
-//CSVからテーブル作成
+/// <summary>
+/// Table クラスのコンストラクタ。テーブル名とカラム情報からテーブルを初期化します。
+/// </summary>
+/// <param name="myname">テーブルの名前を表す文字列。</param>
+/// <param name="mycolumn">カラム情報（カンマ区切り、型指定可能）を表す文字列。</param>
 Table::Table(const char* myname, const char* mycolumn)
 {
 	vector<wString> clmns;
@@ -1136,7 +1148,7 @@ Table::Table(const char* myname, const char* mycolumn)
 	ref = 0;
 	changed = false;
 	name = myname;
-	//clmnsにCSVインサート
+
 	unsigned char work[4096] = {};
 	unsigned char token[256];
 	strcpy(reinterpret_cast<char*>(work), mycolumn);
@@ -1198,8 +1210,9 @@ Table::Table(const wString& myname, const vector<Column*>& mycolumn)
 	}
 
 }
-/////////////////////////////////////////////////////////////////////////////
-//デストラクタ
+/// <summary>
+/// Table クラスのデストラクタ。column および node 配列内の動的に確保されたオブジェクトを解放します。
+/// </summary>
 Table::~Table()
 {
 	for (size_t i = 0; i < column.size(); i++) {
@@ -1209,8 +1222,10 @@ Table::~Table()
 		delete node[i];
 	}
 }
-///////////////////////////////////////////////////////////////////////////////
-//テーブルコピー
+/// <summary>
+/// 指定されたテーブルの内容をこのテーブルにコピーします。
+/// </summary>
+/// <param name="tbl">コピー元となるTableオブジェクトへのポインタ。</param>
 void  Table::copy(Table* tbl)
 {
 	name = tbl->name;             //テーブル名
@@ -1223,13 +1238,11 @@ void  Table::copy(Table* tbl)
 		node.push_back(new Node(tbl->node[i]));
 	}
 }
-/////////////////////////////////////////////////////////////////////////////
 /// <summary>
-/// テーブルインサート(CSV)
-/// カラム数が合ってない等チェックしてないので残りはNULLを追加
+/// 指定されたデータをテーブルに挿入します。
 /// </summary>
-/// <param name="data"></param>
-/// <returns></returns>
+/// <param name="data">挿入するデータを含むC文字列。</param>
+/// <returns>挿入が成功した場合は0、失敗した場合は-1を返します。</returns>
 int Table::Insert(const char* data)
 {
 	vector<wString> tmp;
@@ -1265,7 +1278,12 @@ int Table::Insert(const char* data)
 	Insert(tmp);
 	return 0;
 }
-//テーブルインサート
+/// <summary>
+/// 指定されたカラム名とデータをテーブルに挿入します。
+/// </summary>
+/// <param name="clm">挿入するデータのカラム名のリスト。</param>
+/// <param name="data">各カラムに対応するデータのリスト。</param>
+/// <returns>挿入が成功した場合は0、失敗した場合は-1を返します。</returns>
 int Table::Insert(const vector<wString>& clm, const vector<wString>& data)
 {
 	if (column.size() != clm.size() || clm.size() != data.size()) {
@@ -1278,8 +1296,11 @@ int Table::Insert(const vector<wString>& clm, const vector<wString>& data)
 	}
 	return 0;
 }
-/////////////////////////////////////////////////////////////////////////////
-//テーブルインサート
+/// <summary>
+/// ベクターで与えられたデータをテーブルに挿入します。
+/// </summary>
+/// <param name="data">挿入するデータのwStringベクター。各要素はテーブルのカラムに対応します。</param>
+/// <returns>挿入が成功した場合は0、データ数がカラム数と一致しない場合は-1を返します。</returns>
 int Table::Insert(const vector<wString>& data)
 {
 	if (column.size() != data.size()) {
@@ -1376,8 +1397,13 @@ int Table::condition_mat(condition& cond, vector<char>& mat)
 	}
 	return 0;
 }
-/////////////////////////////////////////////////////////////////////////////
-//テーブル更新
+/// <summary>
+/// 指定されたカラムと条件に基づいて、テーブルの行を更新します。
+/// </summary>
+/// <param name="colnams">更新対象となるカラム名のリスト。</param>
+/// <param name="values">各カラムに対応する新しい値のリスト。</param>
+/// <param name="cond">更新対象となる行を決定する条件。</param>
+/// <returns>更新が成功した場合は0、エラーが発生した場合は-1を返します。</returns>
 int Table::Update(const vector<wString>& colnams, const vector<wString>& values, condition& cond)
 {
 	//更新するカラムの番号
