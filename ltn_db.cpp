@@ -7,6 +7,7 @@
 // $Revision: 1.0 $
 // $Date: 2025/09/02 11:35:00 $
 // ==========================================================================
+#define STARTUP_SQL_TEST
 #define _CRT_SECURE_NO_WARNINGS
 #define CMDLINE
 #include <vector>
@@ -17,6 +18,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
+#include <sstream>
 #ifdef linux
 #include <unistd.h>
 #include <sys/time.h>
@@ -195,13 +197,11 @@ private:
 public:
 	int                    flag;
 	condition              cond;
-	condition              join_cond;
 	//コンストラクタ
-	view(condition& _cond, condition& _join_cond)
+	view(condition& _cond)
 	{
 		flag = 0;
 		cond.copy(_cond);
-		join_cond.copy(_join_cond);
 	}
 	//デストラクタ。クリティカルセクション抜ける
 	~view(void)
@@ -408,10 +408,10 @@ public:
 	/// <param name="tbl">結合対象となるTable型のポインタ。</param>
 	/// <param name="type">LEFT、RIGHT、INNERのいずれかのJOIN_TYPE。結合方法を指定します。</param>
 	/// <returns>常に0を返します。結合処理の結果はメンバー変数に反映されます。</returns>
-	int Join(Table* tbl, JOIN_TYPE type)
+	int Join(Table* tbl, JOIN_TYPE type, condition& join_condition)
 	{
 		vector<char> mat;
-		conditionMatTables(tbl, join_cond, mat);
+		conditionMatTables(tbl, join_condition, mat);
 		const int ROWNUM = (int)tbl->node[0]->size();
 		//ノード追加
 		vector<int> node;
@@ -433,21 +433,27 @@ public:
 			}
 		}
 		else if (type == JOIN_TYPE::RIGHT) {
-			//マトリックスの参照具合が違う
+			vector<char> matchedRight;
+			matchedRight.resize(ROWNUM);
 			for (unsigned int i = 0; i < Node.size(); i++) {
-				flag = true;
 				for (unsigned int j = 0; j < ROWNUM; j++) {
 					if (mat[cnt++]) {
 						node.push_back(makeno(Node[i], j, ROWNUM));
-						flag = false;
+						matchedRight[j] = 1;
 					}
 				}
-				// 条件不一致時は右側にNULL相当を追加
-				if (flag) {
-					node.push_back(makeno(Node[i], ROWNUM, ROWNUM));
+			}
+			// 既存ノード側は全NULLにした疑似ノード番号を作る
+			int nullLeftNode = 0;
+			for (unsigned int i = 0; i < RowNum.size(); i++) {
+				nullLeftNode = makeno(nullLeftNode, RowNum[i], RowNum[i]);
+			}
+			// マッチしなかった右側行を残す
+			for (unsigned int j = 0; j < ROWNUM; j++) {
+				if (!matchedRight[j]) {
+					node.push_back(makeno(nullLeftNode, j, ROWNUM));
 				}
 			}
-
 		}
 		else if (type == JOIN_TYPE::INNER) {
 			int cnt = 0;
@@ -795,12 +801,22 @@ public:
 };
 
 ////////////////////////////////////////////////////////////////////////////
+static const unsigned int TOKEN_MAX_SAFE = 255;
 CMDS getToken(unsigned char* sql, unsigned char* token)
 {
 	unsigned char* p = sql;
 	unsigned char* q = token;
 	unsigned char  ch;
 	CMDS ret;
+	auto appendToken = [&](unsigned char c) -> bool {
+		if (static_cast<unsigned int>(q - token) >= TOKEN_MAX_SAFE) {
+			err("Token too long");
+			*q = 0;
+			return false;
+		}
+		*q++ = c;
+		return true;
+	};
 	//TRIM
 	while (*p && *p <= ' ') p++;
 	//token
@@ -818,10 +834,10 @@ CMDS getToken(unsigned char* sql, unsigned char* token)
 		while (*p && *p != ch) {
 			if (*p == '\\') {
 				p++;
-				*q++ = *p++;
+				if (!appendToken(*p++)) return CMDS::TXNONE;
 			}
 			else {
-				*q++ = *p++;
+				if (!appendToken(*p++)) return CMDS::TXNONE;
 			}
 		}
 		if (*p++ == 0) {
@@ -830,17 +846,29 @@ CMDS getToken(unsigned char* sql, unsigned char* token)
 		}
 		break;
 	case '=':
-		*q++ = *p++;
+		if (!appendToken(*p++)) return CMDS::TXNONE;
 		ret = CMDS::TXOP;
 		break;
 	case '>':
 	case '<':
-		*q++ = *p++;
-		if (*p == '=') *q++ = *p++;
+		if (!appendToken(*p++)) return CMDS::TXNONE;
+		if (*p == '=') {
+			if (!appendToken(*p++)) return CMDS::TXNONE;
+		}
 		ret = CMDS::TXOP;
 		break;
 	case '+':
 	case '-':
+		if (!appendToken(*p++)) return CMDS::TXNONE;
+		if (*p == 0 || strchr("0123456789.", *p) == NULL) {
+			err("Invalid number");
+			return CMDS::TXNONE;
+		}
+		while (*p && strchr("0123456789.", *p) != NULL) {
+			if (!appendToken(*p++)) return CMDS::TXNONE;
+		}
+		ret = CMDS::TXPRM;
+		break;
 	case '0':
 	case '1':
 	case '2':
@@ -852,15 +880,31 @@ CMDS getToken(unsigned char* sql, unsigned char* token)
 	case '8':
 	case '9':
 	case '.':
-		while (*p && strchr("0123456789.", *p) != NULL) *q++ = *p++;
+		while (*p && strchr("0123456789.", *p) != NULL) {
+			if (!appendToken(*p++)) return CMDS::TXNONE;
+		}
 		ret = CMDS::TXPRM;
 		break;
-	case ',':*q++ = *p++; ret = CMDS::TXCM; break;
-	case ';':*q++ = *p++; ret = CMDS::TXED; break;
-	case '(':*q++ = *p++; ret = CMDS::TXPS; break;
-	case ')':*q++ = *p++; ret = CMDS::TXPE; break;
+	case ',':
+		if (!appendToken(*p++)) return CMDS::TXNONE;
+		ret = CMDS::TXCM;
+		break;
+	case ';':
+		if (!appendToken(*p++)) return CMDS::TXNONE;
+		ret = CMDS::TXED;
+		break;
+	case '(':
+		if (!appendToken(*p++)) return CMDS::TXNONE;
+		ret = CMDS::TXPS;
+		break;
+	case ')':
+		if (!appendToken(*p++)) return CMDS::TXNONE;
+		ret = CMDS::TXPE;
+		break;
 	default:
-		while (*p && strchr(" ,=><;()", *p) == NULL)    *q++ = *p++;
+		while (*p && strchr(" ,=><;()", *p) == NULL) {
+			if (!appendToken(*p++)) return CMDS::TXNONE;
+		}
 		*q = 0;
 		//cmd?
 		for (unsigned int i = 0; i < cmdNum; i++) {
@@ -895,6 +939,15 @@ CMDS getData(unsigned char* data, unsigned char* token)
 	int quoted = 0;
 	//token
 	CMDS ret = CMDS::TXPRM;
+	auto appendToken = [&](unsigned char c) -> bool {
+		if (static_cast<unsigned int>(q - token) >= TOKEN_MAX_SAFE) {
+			err("Token too long");
+			*q = 0;
+			return false;
+		}
+		*q++ = c;
+		return true;
+	};
 	//TRIM
 	while (*p && *p <= ' ') p++;
 
@@ -958,12 +1011,12 @@ CMDS getData(unsigned char* data, unsigned char* token)
 			}
 			else if (*p == ',') {
 				if ((quoted & 1) == 0) {
-					*q++ = *p++;
+					if (!appendToken(*p++)) return CMDS::TXNONE;
 					break;
 				}
 
 			}
-			*q++ = *p++;
+			if (!appendToken(*p++)) return CMDS::TXNONE;
 		}
 		//if (*p++ == 0) {
 		//	err("Invalid quote");
@@ -971,12 +1024,12 @@ CMDS getData(unsigned char* data, unsigned char* token)
 		//}
 		break;
 	case ',':
-		*q++ = *p++;
+		if (!appendToken(*p++)) return CMDS::TXNONE;
 		ret = CMDS::TXCM;
 		break;
 	default:
 		while (*p && *p != ',') {
-			*q++ = *p++;
+			if (!appendToken(*p++)) return CMDS::TXNONE;
 		}
 		break;
 	}
@@ -1294,9 +1347,28 @@ int Table::Insert(const vector<wString>& clm, const vector<wString>& data)
 		err("Illigal number of data");
 		return -1;
 	}
-	//TODO:カラムと合致したデータを投入すること
+	map<wString, wString> emptyAlias;
+	vector<int> colpos;
+	colpos.resize(clm.size(), -1);
+	// 指定された列名と実カラムの対応表を作る
+	for (unsigned int i = 0; i < clm.size(); i++) {
+		for (unsigned int j = 0; j < column.size(); j++) {
+			if (column[j]->Compare(clm[i], emptyAlias, emptyAlias)) {
+				if (colpos[i] >= 0) {
+					err("Ambiguous column name");
+					return -1;
+				}
+				colpos[i] = j;
+			}
+		}
+		if (colpos[i] < 0) {
+			err("Undefined column name");
+			return -1;
+		}
+	}
+	// 列名に対応するカラムへ値を投入
 	for (unsigned int i = 0; i < data.size(); i++) {
-		node[i]->put(data[i].c_str());
+		node[colpos[i]]->put(data[i].c_str());
 	}
 	return 0;
 }
@@ -1425,6 +1497,8 @@ int Table::Update(const vector<wString>& colnams, const vector<wString>& values,
 	//条件配列生成
 	vector<char> mat;
 	if (condition_mat(cond, mat)) return -1;
+	// この時点で条件が残るのは未定義カラム等で評価不能な場合
+	if (cond.cond.size()) { err("undefined column name found"); return -1; }
 
 	//行更新
 	for (unsigned int i = 0; i < node[0]->size(); i++) {
@@ -1444,6 +1518,8 @@ int Table::Delete(condition& cond)
 	//条件配列生成
 	vector<char> mat;
 	if (condition_mat(cond, mat)) return -1;
+	// この時点で条件が残るのは未定義カラム等で評価不能な場合
+	if (cond.cond.size()) { err("undefined column name found"); return -1; }
 	//後ろから実行
 	for (int i = node[0]->size() - 1; i >= 0; i--) {
 		//条件が合致するなら
@@ -1602,7 +1678,6 @@ void Database::Save(void)
 int Database::SQL(const wString& sqltext, wString& retStr)
 {
 	condition        cond;
-	condition		 join_cond; // JOIN条件用
 	unsigned char    token[256];
 	unsigned char    token2[256];
 	unsigned char    sql[2048] = {};
@@ -1611,13 +1686,18 @@ int Database::SQL(const wString& sqltext, wString& retStr)
 	//　テーブル名
 	vector<wString>  tables;
 	vector<JOIN_TYPE> join_types; // JOINの種類
+	vector<condition> join_conds; // JOINごとのON条件
 	vector<wString>  values;
 	vector<wString>  order;
 	orderType        orderTyp = orderType::ASC;
 	vector<int>      limit;
 	Table* tbl;
 	view* vw;
-	strcpy(reinterpret_cast<char*>(sql), reinterpret_cast<char*>(sqltext.c_str()));
+	if (sqltext.length() >= sizeof(sql)) {
+		err("SQL too long");
+		return -1;
+	}
+	memcpy(sql, sqltext.c_str(), sqltext.length() + 1);
 	CMDS ret = getToken(sql, token);
 	if (ret == CMDS::TXNONE || ret == CMDS::TXOTHER) {
 		return -1;
@@ -1642,7 +1722,6 @@ int Database::SQL(const wString& sqltext, wString& retStr)
 				if (chkToken(sql, token, ret, CMDS::TXARG)) { err("SELECT NO ARG ERROR");   return -1; }//ARG
 				//エイリアス登録
 				cond.clmalias[reinterpret_cast<char*>(token)] = reinterpret_cast<char*>(token2);
-				join_cond.clmalias[reinterpret_cast<char*>(token)] = reinterpret_cast<char*>(token2);
 				ret = getToken(sql, token);
 			}
 			if (ret == CMDS::TXFROM)               break;
@@ -1653,12 +1732,12 @@ int Database::SQL(const wString& sqltext, wString& retStr)
 			if (chkToken(sql, token2, ret, CMDS::TXARG)) { err("SELECT NO TABLE ERROR"); return -1; }//table
 			tables.push_back(reinterpret_cast<char*>(token2));
 			join_types.push_back(JOIN_TYPE::NONE); // 最初のテーブルはJOINなし
+			join_conds.push_back(condition());
 			ret = getToken(sql, token);
 			if (ret == CMDS::TXAS) {
 				if (chkToken(sql, token, ret, CMDS::TXARG)) { err("SELECT NO ARG ERROR");   return -1; }//ARG
 				//テーブルエイリアス登録
 				cond.tblalias[reinterpret_cast<char*>(token)] = reinterpret_cast<char*>(token2);
-				join_cond.tblalias[reinterpret_cast<char*>(token)] = reinterpret_cast<char*>(token2);
 				ret = getToken(sql, token);
 			}
 			if (ret != CMDS::TXCM)                 break;
@@ -1668,6 +1747,7 @@ int Database::SQL(const wString& sqltext, wString& retStr)
 		while (ret == CMDS::TXJOIN || ret == CMDS::TXLEFT || ret == CMDS::TXRIGHT || ret == CMDS::TXINNER) {
 			// SELECT JOIN TYPE
 			JOIN_TYPE join_type;
+			condition join_cond;
 			switch (ret) {
 			case CMDS::TXLEFT:join_type = JOIN_TYPE::LEFT; break;
 			case CMDS::TXRIGHT:join_type = JOIN_TYPE::RIGHT; break;
@@ -1680,12 +1760,12 @@ int Database::SQL(const wString& sqltext, wString& retStr)
 			if (chkToken(sql, token2, ret, CMDS::TXARG)) { err("JOIN NO TABLE ERROR"); return -1; }
 			tables.push_back(reinterpret_cast<char*>(token2));
 			join_types.push_back(join_type);
+			join_conds.push_back(condition());
 
 			ret = getToken(sql, token);
 			if (ret == CMDS::TXAS) {
 				if (chkToken(sql, token, ret, CMDS::TXARG)) { err("JOIN NO ARG ERROR");   return -1; }
 				cond.tblalias[reinterpret_cast<char*>(token)] = reinterpret_cast<char*>(token2);
-				join_cond.tblalias[reinterpret_cast<char*>(token)] = reinterpret_cast<char*>(token2);
 				ret = getToken(sql, token);
 			}
 			// ON句の処理
@@ -1703,7 +1783,9 @@ int Database::SQL(const wString& sqltext, wString& retStr)
 					join_cond.put(reinterpret_cast<char*>(token), ret);
 				}
 			}
-			ret = getToken(sql, token);
+			join_cond.clmalias = cond.clmalias;
+			join_cond.tblalias = cond.tblalias;
+			join_conds.back().copy(join_cond);
 		}
 		// --- ここまで JOIN句の処理 ---
 
@@ -1759,7 +1841,7 @@ int Database::SQL(const wString& sqltext, wString& retStr)
 			}
 		}
 		//テーブル取得
-		vw = new view(cond, join_cond);
+		vw = new view(cond);
 		for (unsigned int i = 0; i < tables.size(); i++) {
 			if (join_types[i] == JOIN_TYPE::NONE)
 			{
@@ -1776,7 +1858,7 @@ int Database::SQL(const wString& sqltext, wString& retStr)
 		for (unsigned int i = 0; i < tables.size(); i++) {
 			if (join_types[i] != JOIN_TYPE::NONE)
 			{
-				vw->Join(tblList[tables[i]], join_types[i]);
+				vw->Join(tblList[tables[i]], join_types[i], join_conds[i]);
 			}
 		}
 
@@ -2004,7 +2086,9 @@ int Database::SQL(const wString& sqltext, wString& retStr)
 		//テーブル取得
 		tbl = tblList[tables[0]];
 		//where実行
-		tbl->Update(colnams, values, cond);
+		if (tbl->Update(colnams, values, cond)) {
+			return -1;
+		}
 		break;
 	case  CMDS::TXDELETE://DELETE FROM TABLENAME WHERE cond1,op1,cond2
 		//テーブル名取得
@@ -2039,7 +2123,9 @@ int Database::SQL(const wString& sqltext, wString& retStr)
 		//テーブル取得
 		tbl = tblList[tables[0]];
 		//where実行
-		tbl->Delete(cond);
+		if (tbl->Delete(cond)) {
+			return -1;
+		}
 		break;
 		//show databases
 		//show tables
@@ -2390,17 +2476,28 @@ int Database::SaveToFile(wString file)
 {
 	auto br = new bufrd();
 	if (br->wopen(file)) {
+		delete br;
 		return -1;
 	}
 	//名前はcatalogクラスで保存
 	//テーブル個数保存
 	auto max = (unsigned int)tblList.size();
-	br->Write(&max, sizeof(unsigned int));
+	if (br->Write(&max, sizeof(unsigned int))) {
+		br->wclose();
+		delete br;
+		return -1;
+	}
 	//テーブル保存
 	for (auto const& x : tblList) {
 		x.second->SaveToFile(br);
+		if (br->HasError()) {
+			break;
+		}
 	}
-	br->wclose();
+	if (br->wclose() || br->HasError()) {
+		delete br;
+		return -1;
+	}
 	delete br;
 	return 0;
 }
@@ -2677,6 +2774,224 @@ DBCatalog::~DBCatalog(void)
 	delete connects;
 	SaveToFile();
 }
+
+#ifdef STARTUP_SQL_TEST
+struct SqlSample {
+	wString label;
+	wString sql;
+	int expected_result;
+	wString expected_fragment;
+};
+
+static string TrimString(const string& src)
+{
+	size_t st = 0;
+	while (st < src.size() && (src[st] == ' ' || src[st] == '\t' || src[st] == '\r')) st++;
+	size_t ed = src.size();
+	while (ed > st && (src[ed - 1] == ' ' || src[ed - 1] == '\t' || src[ed - 1] == '\r')) ed--;
+	return src.substr(st, ed - st);
+}
+
+static wString DecodeEscapes(const string& src)
+{
+	wString out;
+	for (size_t i = 0; i < src.size(); i++) {
+		if (src[i] == '\\' && i + 1 < src.size()) {
+			i++;
+			switch (src[i]) {
+			case 'n': out += '\n'; break;
+			case 't': out += '\t'; break;
+			case 'r': out += '\r'; break;
+			case '\\': out += '\\'; break;
+			default:
+				out += '\\';
+				out += src[i];
+				break;
+			}
+		}
+		else {
+			out += src[i];
+		}
+	}
+	return out;
+}
+
+static int ParseStartupSampleFile(const wString& path, vector<SqlSample>& samples)
+{
+	wString body;
+	if (body.load_from_file(path.c_str()) < 0) {
+		err("startup-test file open error");
+		return -1;
+	}
+	std::istringstream iss(body.c_str());
+	string raw;
+	SqlSample cur{};
+	bool hasLabel = false;
+	bool hasSql = false;
+	bool hasExpected = false;
+	auto flushSample = [&]() -> int {
+		if (!hasLabel && !hasSql && !hasExpected) return 0;
+		if (!hasLabel || !hasSql || !hasExpected) {
+			err("startup-test file parse error");
+			return -1;
+		}
+		samples.push_back(cur);
+		cur = SqlSample{};
+		hasLabel = false;
+		hasSql = false;
+		hasExpected = false;
+		return 0;
+	};
+	while (std::getline(iss, raw)) {
+		string line = TrimString(raw);
+		if (line.empty() || line[0] == '#') continue;
+		if (line == "---") {
+			if (flushSample() < 0) return -1;
+			continue;
+		}
+		size_t eq = line.find('=');
+		if (eq == string::npos) {
+			err("startup-test file parse error");
+			return -1;
+		}
+		string key = TrimString(line.substr(0, eq));
+		string val = line.substr(eq + 1);
+		if (key == "label") {
+			cur.label = DecodeEscapes(val);
+			hasLabel = true;
+		}
+		else if (key == "sql") {
+			cur.sql = DecodeEscapes(val);
+			hasSql = true;
+		}
+		else if (key == "expected_result") {
+			cur.expected_result = atoi(val.c_str());
+			hasExpected = true;
+		}
+		else if (key == "expected_fragment") {
+			cur.expected_fragment = DecodeEscapes(val);
+		}
+		else {
+			err("startup-test unknown key");
+			return -1;
+		}
+	}
+	if (flushSample() < 0) return -1;
+	return 0;
+}
+
+static wString ReplaceAllToken(wString src, const wString& from, const wString& to)
+{
+	int pos = 0;
+	while ((pos = src.find(from, pos)) != wString::npos) {
+		src.replace(pos, from.length(), to);
+		pos += to.length();
+	}
+	return src;
+}
+
+static int ExpandSampleSql(const SqlSample& sample, map<wString, wString>& placeholders, wString& sql)
+{
+	if (sample.sql == "__TOO_LONG_SQL__") {
+		sql = "select ";
+		for (unsigned int i = 0; i < 2100; i++) sql += 'a';
+		sql += ";";
+		return 0;
+	}
+	if (sample.sql == "__TOO_LONG_TOKEN_SQL__") {
+		if (!placeholders.count("T1")) {
+			err("startup-test placeholder error");
+			return -1;
+		}
+		sql = "select ";
+		for (unsigned int i = 0; i < 300; i++) sql += 'a';
+		sql += " from ";
+		sql += placeholders["T1"];
+		sql += ";";
+		return 0;
+	}
+	sql = sample.sql;
+	for (auto const& x : placeholders) {
+		wString from = "{{" + x.first + "}}";
+		sql = ReplaceAllToken(sql, from, x.second);
+	}
+	return 0;
+}
+
+static void RunStartupSampleTests(Database* db)
+{
+#ifdef linux
+	const auto pid = (unsigned int)getpid();
+#else
+	const auto pid = (unsigned int)_getpid();
+#endif
+	wString suffix;
+	suffix.sprintf("%u_%u", (unsigned int)time(NULL), pid);
+	map<wString, wString> placeholders;
+	placeholders["T1"] = "__sample_join_t1_" + suffix;
+	placeholders["T2"] = "__sample_join_t2_" + suffix;
+	placeholders["T3"] = "__sample_join_t3_" + suffix;
+	placeholders["T_INS"] = "__sample_insert_map_" + suffix;
+	placeholders["T_WHERE"] = "__sample_where_guard_" + suffix;
+	placeholders["T_RIGHT_L"] = "__sample_right_l_" + suffix;
+	placeholders["T_RIGHT_R"] = "__sample_right_r_" + suffix;
+	placeholders["T_SORT"] = "__sample_sort_" + suffix;
+
+	wString testFile = current_dir + DELIMITER + "database/startup_sql_tests.txt";
+	vector<SqlSample> samples;
+	if (ParseStartupSampleFile(testFile, samples) < 0) {
+		printf("[startup-test] file load failed: %s\n", testFile.c_str());
+		fflush(stdout);
+		return;
+	}
+
+	wString retStr;
+	int ok_count = 0;
+	printf("[startup-test] Running SQL samples...\n");
+	fflush(stdout);
+	for (const auto& sample : samples) {
+		wString sql;
+		if (ExpandSampleSql(sample, placeholders, sql) < 0) {
+			printf("[startup-test] %s : NG\n", sample.label.c_str());
+			printf("[startup-test] sql build failed\n");
+			fflush(stdout);
+			continue;
+		}
+		retStr.clear();
+		int rc = db->SQL(sql, retStr);
+		printf("%s\n", sql.c_str());
+		bool ok = (rc == sample.expected_result);
+		if (ok && sample.expected_fragment.size() > 0) {
+			ok = (retStr.find(sample.expected_fragment) != wString::npos);
+		}
+		printf("[startup-test] %s : %s\n", sample.label.c_str(), ok ? "OK" : "NG");
+		if (!ok) {
+			printf("[startup-test] sql=%s\n", sql.c_str());
+			printf("[startup-test] rc=%d\n", rc);
+			if (retStr.size()) {
+				printf("[startup-test] out=%s\n", retStr.c_str());
+			}
+		}
+		else {
+			ok_count++;
+		}
+		fflush(stdout);
+	}
+	printf("[startup-test] %d/%d passed.\n", ok_count, (int)samples.size());
+	fflush(stdout);
+
+	wString dropSql;
+	retStr.clear(); dropSql = "drop table " + placeholders["T1"] + ";"; db->SQL(dropSql, retStr);
+	retStr.clear(); dropSql = "drop table " + placeholders["T2"] + ";"; db->SQL(dropSql, retStr);
+	retStr.clear(); dropSql = "drop table " + placeholders["T3"] + ";"; db->SQL(dropSql, retStr);
+	retStr.clear(); dropSql = "drop table " + placeholders["T_INS"] + ";"; db->SQL(dropSql, retStr);
+	retStr.clear(); dropSql = "drop table " + placeholders["T_WHERE"] + ";"; db->SQL(dropSql, retStr);
+	retStr.clear(); dropSql = "drop table " + placeholders["T_RIGHT_L"] + ";"; db->SQL(dropSql, retStr);
+	retStr.clear(); dropSql = "drop table " + placeholders["T_RIGHT_R"] + ";"; db->SQL(dropSql, retStr);
+	retStr.clear(); dropSql = "drop table " + placeholders["T_SORT"] + ";"; db->SQL(dropSql, retStr);
+}
+#endif
+
 #if 1
 
 /// <summary>
@@ -2723,6 +3038,10 @@ int main(int argc, char* argv[])
 	else {
 		db = catalog->DBConnect((char*)"_SYSTEM");
 	}
+#ifdef STARTUP_SQL_TEST
+	RunStartupSampleTests(db);
+	printf("Startup SQL sample tests finished. Entering interactive mode.\n");
+#endif
 
 	for (;;) {
 		fgets((char*)cmd, sizeof(cmd), stdin);
@@ -2782,8 +3101,3 @@ int main(int argc, char* argv[])
 }
 #endif
 //---------------------------------------------------------------------------
-
-
-
-
-

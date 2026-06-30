@@ -10,6 +10,7 @@ if (POLICY CMP0141)
 endif()
 
 project ("MSQL")
+option(STARTUP_SQL_TEST "Enable startup SQL sample tests at launch" OFF)
 
 # ソースをこのプロジェクトの実行可能ファイルに追加します。
 add_executable (MSQL 
@@ -23,6 +24,15 @@ add_executable (MSQL
 
 if (CMAKE_VERSION VERSION_GREATER 3.12)
   set_property(TARGET MSQL PROPERTY CXX_STANDARD 20)
+endif()
+
+if (STARTUP_SQL_TEST)
+  target_compile_definitions(MSQL PRIVATE STARTUP_SQL_TEST)
+  add_custom_command(TARGET MSQL POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:MSQL>/database"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/database/startup_sql_tests.txt"
+            "$<TARGET_FILE_DIR:MSQL>/database/startup_sql_tests.txt")
 endif()
 
 # TODO: テストを追加し、必要な場合は、ターゲットをインストールします。

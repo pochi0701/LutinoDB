@@ -1,0 +1,173 @@
+# Startup SQL regression cases
+# Fields: label, expected_result, expected_fragment, sql
+# Separator: ---
+
+label=create t1
+expected_result=0
+expected_fragment=
+sql=create table {{T1}}(id number, v1 string);
+---
+label=create t2
+expected_result=0
+expected_fragment=
+sql=create table {{T2}}(id number, v2 string);
+---
+label=create t3
+expected_result=0
+expected_fragment=
+sql=create table {{T3}}(id number, v3 string);
+---
+label=insert t1-1
+expected_result=0
+expected_fragment=
+sql=insert into {{T1}}(id,v1) values(1,'a');
+---
+label=insert t1-2
+expected_result=0
+expected_fragment=
+sql=insert into {{T1}}(id,v1) values(2,'b');
+---
+label=insert t2-1
+expected_result=0
+expected_fragment=
+sql=insert into {{T2}}(id,v2) values(1,'x');
+---
+label=insert t2-2
+expected_result=0
+expected_fragment=
+sql=insert into {{T2}}(id,v2) values(2,'y');
+---
+label=insert t3-1
+expected_result=0
+expected_fragment=
+sql=insert into {{T3}}(id,v3) values(1,'m');
+---
+label=insert t3-2
+expected_result=0
+expected_fragment=
+sql=insert into {{T3}}(id,v3) values(2,'n');
+---
+label=multi join
+expected_result=1
+expected_fragment=2\t"b"\t"y"\t"n"
+sql=select {{T1}}.id,{{T1}}.v1,{{T2}}.v2,{{T3}}.v3 from {{T1}} join {{T2}} on {{T1}}.id={{T2}}.id join {{T3}} on {{T2}}.id={{T3}}.id;
+---
+label=create insert-map table
+expected_result=0
+expected_fragment=
+sql=create table {{T_INS}}(a number, b number);
+---
+label=insert with swapped columns
+expected_result=0
+expected_fragment=
+sql=insert into {{T_INS}}(b,a) values(1,2);
+---
+label=verify insert mapping
+expected_result=1
+expected_fragment=2\t1
+sql=select a,b from {{T_INS}};
+---
+label=create where-guard table
+expected_result=0
+expected_fragment=
+sql=create table {{T_WHERE}}(id number, v string);
+---
+label=insert where-guard-1
+expected_result=0
+expected_fragment=
+sql=insert into {{T_WHERE}}(id,v) values(1,'a');
+---
+label=insert where-guard-2
+expected_result=0
+expected_fragment=
+sql=insert into {{T_WHERE}}(id,v) values(2,'b');
+---
+label=reject update unknown where column
+expected_result=-1
+expected_fragment=
+sql=update {{T_WHERE}} set v='z' where typo_col=1;
+---
+label=rows remain after failed update
+expected_result=1
+expected_fragment=count\n2\n
+sql=select count(*) from {{T_WHERE}};
+---
+label=reject delete unknown where column
+expected_result=-1
+expected_fragment=
+sql=delete from {{T_WHERE}} where typo_col=1;
+---
+label=rows remain after failed delete
+expected_result=1
+expected_fragment=count\n2\n
+sql=select count(*) from {{T_WHERE}};
+---
+label=create right-join-left
+expected_result=0
+expected_fragment=
+sql=create table {{T_RIGHT_L}}(id number);
+---
+label=create right-join-right
+expected_result=0
+expected_fragment=
+sql=create table {{T_RIGHT_R}}(id number);
+---
+label=insert right-join-left
+expected_result=0
+expected_fragment=
+sql=insert into {{T_RIGHT_L}}(id) values(1);
+---
+label=insert right-join-right-1
+expected_result=0
+expected_fragment=
+sql=insert into {{T_RIGHT_R}}(id) values(1);
+---
+label=insert right-join-right-2
+expected_result=0
+expected_fragment=
+sql=insert into {{T_RIGHT_R}}(id) values(2);
+---
+label=verify right join keeps unmatched right
+expected_result=1
+expected_fragment=\t2
+sql=select {{T_RIGHT_L}}.id,{{T_RIGHT_R}}.id from {{T_RIGHT_L}} right join {{T_RIGHT_R}} on {{T_RIGHT_L}}.id={{T_RIGHT_R}}.id;
+---
+label=create sort table
+expected_result=0
+expected_fragment=
+sql=create table {{T_SORT}}(id number);
+---
+label=insert sort -10
+expected_result=0
+expected_fragment=
+sql=insert into {{T_SORT}}(id) values(-10);
+---
+label=insert sort -2
+expected_result=0
+expected_fragment=
+sql=insert into {{T_SORT}}(id) values(-2);
+---
+label=insert sort 1
+expected_result=0
+expected_fragment=
+sql=insert into {{T_SORT}}(id) values(1);
+---
+label=verify order by asc numeric
+expected_result=1
+expected_fragment=-10\n-2\n1
+sql=select id from {{T_SORT}} order by id asc;
+---
+label=verify order by desc numeric
+expected_result=1
+expected_fragment=1\n-2\n-10
+sql=select id from {{T_SORT}} order by id desc;
+---
+label=reject too long sql
+expected_result=-1
+expected_fragment=
+sql=__TOO_LONG_SQL__
+---
+label=reject too long token
+expected_result=-1
+expected_fragment=
+sql=__TOO_LONG_TOKEN_SQL__

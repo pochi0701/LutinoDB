@@ -31,6 +31,7 @@ private:
 	int           bufptr;
 	int           fd;
 	unsigned int  rest;
+	bool          writeError;
 public:
 	bufrd()
 	{
@@ -38,6 +39,7 @@ public:
 		bufptr = 0;
 		fd = 0;
 		rest = 0;
+		writeError = false;
 	}
 
 	/// <summary>
@@ -51,7 +53,13 @@ public:
 			//debug_log_output("%s(%d):ropen(%s) Error.", __FILE__, __LINE__, file.c_str());
 			return -1;
 		}
-		rest = read(fd, static_cast<void*>(buf), sizeof(buf));
+		const int readnum = read(fd, static_cast<void*>(buf), sizeof(buf));
+		if (readnum < 0) {
+			close(fd);
+			fd = -1;
+			return -1;
+		}
+		rest = static_cast<unsigned int>(readnum);
 		return 0;
 	}
 
@@ -66,6 +74,8 @@ public:
 			//debug_log_output("%s(%d):wopen(%s) Error.", __FILE__, __LINE__, file.c_str());
 			return -1;
 		}
+		bufptr = 0;
+		writeError = false;
 		return 0;
 	}
 
@@ -82,10 +92,19 @@ public:
 	/// 書き込みクローズ
 	/// </summary>
 	/// <param name=""></param>
-	void wclose(void) {
-		write(fd, static_cast<void*>(buf), bufptr);
+	int wclose(void) {
+		if (writeError) {
+			close(fd);
+			fd = -1;
+			return -1;
+		}
+		const int num = write(fd, static_cast<void*>(buf), bufptr);
+		if (num != bufptr) {
+			writeError = true;
+		}
 		close(fd);
 		fd = -1;
+		return writeError ? -1 : 0;
 	}
 	//読み込み：戻り値 成功:0 失敗:-1
 	//失敗時closeしなくて良い
@@ -96,8 +115,13 @@ public:
 			bufptr += siz;
 			rest -= siz;
 			if (bufptr >= HSIZ) {
-				memcpy(buf, buf + HSIZ, HSIZ);
-				rest += read(fd, static_cast<void*>(buf + HSIZ), HSIZ);
+				memmove(buf, buf + HSIZ, HSIZ);
+				const int readnum = read(fd, static_cast<void*>(buf + HSIZ), HSIZ);
+				if (readnum < 0) {
+					close(fd);
+					return -1;
+				}
+				rest += static_cast<unsigned int>(readnum);
 				bufptr -= HSIZ;
 			}
 			return 0;
@@ -111,17 +135,32 @@ public:
 	//失敗時closeしなくて良い
 	int Write(const void* data, unsigned int siz)
 	{
-		memcpy(buf + bufptr, data, siz);
-		bufptr += siz;
-		if (bufptr >= HSIZ) {
-			int num = write(fd, static_cast<void*>(buf), HSIZ);
-			if (num != HSIZ) {
-				return -1;
+		if (writeError) {
+			return -1;
+		}
+		const unsigned char* src = static_cast<const unsigned char*>(data);
+		unsigned int restsiz = siz;
+		while (restsiz > 0) {
+			unsigned int space = SIZ - static_cast<unsigned int>(bufptr);
+			unsigned int chunk = (restsiz < space) ? restsiz : space;
+			memcpy(buf + bufptr, src, chunk);
+			bufptr += chunk;
+			src += chunk;
+			restsiz -= chunk;
+			while (bufptr >= HSIZ) {
+				int num = write(fd, static_cast<void*>(buf), HSIZ);
+				if (num != HSIZ) {
+					writeError = true;
+					return -1;
+				}
+				memmove(buf, buf + HSIZ, HSIZ);
+				bufptr -= HSIZ;
 			}
-			memcpy(buf, buf + HSIZ, HSIZ);
-			bufptr -= HSIZ;
 		}
 		return 0;
+	}
+	bool HasError(void) const {
+		return writeError;
 	}
 };
 /////////////////////////////////////////////////////////////////////////////
@@ -226,17 +265,11 @@ public:
 					for (auto j = i + 1U; j < siz; j++) {
 						int ii = indexdt[i];
 						int jj = indexdt[j];
-						if (data[ii][0] == '-' || data[jj][0] == '-') {
-							if (data[ii] < data[jj]) {
-								swap(indexdt[i], indexdt[j]);
-								swap(indexno[i], indexno[j]);
-							}
-						}
-						else {
-							if (data[ii] > data[jj]) {
-								swap(indexdt[i], indexdt[j]);
-								swap(indexno[i], indexno[j]);
-							}
+						int vi = atoi(data[ii].c_str());
+						int vj = atoi(data[jj].c_str());
+						if (vi > vj) {
+							swap(indexdt[i], indexdt[j]);
+							swap(indexno[i], indexno[j]);
 						}
 					}
 				}
@@ -247,17 +280,11 @@ public:
 					for (unsigned int j = i + 1; j < siz; j++) {
 						int ii = indexdt[i];
 						int jj = indexdt[j];
-						if (data[ii][0] == '-' || data[jj][0] == '-') {
-							if (data[ii] > data[jj]) {
-								swap(indexdt[i], indexdt[j]);
-								swap(indexno[i], indexno[j]);
-							}
-						}
-						else {
-							if (data[ii] < data[jj]) {
-								swap(indexdt[i], indexdt[j]);
-								swap(indexno[i], indexno[j]);
-							}
+						int vi = atoi(data[ii].c_str());
+						int vj = atoi(data[jj].c_str());
+						if (vi < vj) {
+							swap(indexdt[i], indexdt[j]);
+							swap(indexno[i], indexno[j]);
 						}
 					}
 				}
